@@ -2,6 +2,7 @@ package com.dboy.startup_coroutine
 
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -54,13 +55,39 @@ class Startup(
                     }
                 }
 
-                // 2. 并发执行所有并行任务
-                // Await all parallel jobs to complete
-                parallelInitializers.map { initializer ->
-                    async(Dispatchers.Default) { // 使用 async 以便可以 await
+//                // 2. 并发执行所有并行任务
+//                // Await all parallel jobs to complete
+//                parallelInitializers.map { initializer ->
+//                    async(Dispatchers.Default) { // 使用 async 以便可以 await
+//                        execute(initializer)
+//                    }
+//                }.awaitAll() // 等待所有并行任务完成
+
+                // 2. 按依赖关系执行所有并行任务
+                // 创建一个 Map 来追踪每个并行任务的 Deferred/Job
+                val parallelJobs = mutableMapOf<Class<out Initializer<*>>, Deferred<*>>()
+
+                for (initializer in parallelInitializers) {
+                    val job = async(Dispatchers.Default) {
+                        // 在启动当前任务前，先等待其所有依赖项完成
+                        val dependencyJobs = initializer.dependencies()
+                            .mapNotNull { dependencyClass ->
+                                // 依赖项可能是另一个并行任务，从 map 中找到它的 job
+                                parallelJobs[dependencyClass]
+                                // 依赖项也可能是串行任务，它们已经完成了，所以 parallelJobs[dependencyClass] 会是 null
+                            }
+
+                        // 等待所有依赖的并行任务完成
+                        dependencyJobs.awaitAll()
+
+                        // 所有依赖都完成后，执行当前任务
                         execute(initializer)
                     }
-                }.awaitAll() // 等待所有并行任务完成
+                    parallelJobs[initializer.javaClass] = job
+                }
+
+                // 等待所有并行任务的根节点完成
+                parallelJobs.values.awaitAll()
 
                 // 3. 所有任务完成后，在主线程上调用回调
                 withContext(Dispatchers.Main) {
