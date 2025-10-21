@@ -1,167 +1,251 @@
+// StartupTest.kt
 package com.dboy.startup_coroutine
 
 import android.content.Context
-import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import org.junit.Assert.assertThrows
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import org.junit.After
+import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.TestWatcher
-import org.junit.runner.Description
 import org.mockito.Mockito.mock
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.coroutines.resume
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class) // 启用实验性的测试API
 class StartupTest {
 
-    // --- 新增代码：创建并应用 Test Dispatcher 规则 ---
+    // 1. 创建一个测试调度器
+    private val testDispatcher: TestDispatcher = UnconfinedTestDispatcher()
+
+    // 2. 使用 @get:Rule 来自动设置和重置 Main dispatcher
     @get:Rule
-    val mainDispatcherRule = object : TestWatcher() {
-        override fun starting(description: Description?) {
-            super.starting(description)
-            // 在每个测试开始前，将主调度器设置为一个测试调度器
-            Dispatchers.setMain(UnconfinedTestDispatcher())
-        }
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
 
-        override fun finished(description: Description?) {
-            super.finished(description)
-            // 在每个测试结束后，重置主调度器
-            Dispatchers.resetMain()
-        }
-
-    }
-    private lateinit var mockContext: Context
+    private val mockContext: Context = mock(Context::class.java)
 
     @Before
     fun setup() {
-        // 使用 Mockito 创建一个模拟的 Context 对象，因为我们的框架需要它
-        mockContext = mock(Context::class.java)
+        logList.clear()
+    }
+
+    @After
+    fun tearDown() {
+        println("Logs for test '${Thread.currentThread().stackTrace[2].methodName}':")
+        logList.forEach { println("  $it") }
+        println("------------------------------------")
+    }
+
+    // 辅助函数，现在改为 suspend fun，并且不再需要 CountDownLatch
+    private suspend fun runTest(
+        initializers: List<Initializer<*>>,
+        onCompletion: () -> Unit,
+        onError: ((List<Throwable>) -> Unit)? = null
+    ) {
+        suspendCancellableCoroutine<Unit>{
+            val startup = Startup(
+                context = mockContext,
+                initializers = initializers,
+                onCompletion = {
+                    onCompletion()
+                    it.resume(Unit)
+                },
+                onError = { e->
+                    onError?.invoke(e)
+                    it.resume(Unit)
+                }
+            )
+            startup.start()
+            // runTest 会自动等待 startup.start() 启动的协程完成
+        }
     }
 
     @Test
-    fun `正常执行 - 所有任务完成并调用 onCompletion 回调`() = runTest {
-        // 使用 Channel 来同步测试线程和协程的完成状态
-        val completionChannel = Channel<Boolean>(1)
+    fun `1 - 串行任务的单一依赖`() = runTest {
+        var completed = false
+        runTest(listOf(SerialTaskA(), SerialTaskB()), onCompletion = {
+            completed = true
+            assertEquals(2, logList.size)
+            assertTrue(logList[0].startsWith("SerialTaskA"))
+            assertTrue(logList[1].startsWith("SerialTaskB"))
+            val threadA = logList[0].substringAfter("on ")
+            val threadB = logList[1].substringAfter("on ")
+            assertEquals(threadA, threadB)
+        }, onError = {
+            it.forEach { e->
+                println(e)
+            }
 
-        val initializers = listOf(
-            InitializerA(),
-            InitializerB(),
-            InitializerC(),
-            InitializerD(),
-            InitializerE()
+        })
+        assertTrue(completed)
+    }
+
+    @Test
+    fun `2 - 串行任务的多依赖`() = runTest {
+        var completed = false
+        runTest(listOf(SerialTaskA(), SerialTaskB(), SerialTaskC()), onCompletion = {
+            completed = true
+            assertEquals(3, logList.size)
+            assertEquals("SerialTaskA", logList[0].substringBefore(" on"))
+            assertEquals("SerialTaskB", logList[1].substringBefore(" on"))
+            assertEquals("SerialTaskC", logList[2].substringBefore(" on"))
+        })
+        assertTrue(completed)
+    }
+
+    @Test
+    fun `3 - 并行任务依赖单个串行任务`() = runTest {
+        runTest(listOf(SerialTaskA(), ParallelTaskD()), onCompletion = {
+            assertEquals(2, logList.size)
+            assertEquals("SerialTaskA", logList[0].substringBefore(" on"))
+            assertEquals("ParallelTaskD", logList[1].substringBefore(" on"))
+            assertTrue(logList[1].contains("DefaultDispatcher"))
+        })
+    }
+
+    @Test
+    fun `4 - 并行任务依赖多个串行任务`() = runTest {
+        runTest(listOf(SerialTaskA(), SerialTaskB(), ParallelTaskE()), onCompletion = {
+            assertEquals(3, logList.size)
+            val taskNames = logList.map { it.substringBefore(" on") }
+            assertTrue(taskNames.indexOf("SerialTaskA") < taskNames.indexOf("ParallelTaskE"))
+            assertTrue(taskNames.indexOf("SerialTaskB") < taskNames.indexOf("ParallelTaskE"))
+        })
+    }
+
+    @Test
+    fun `5 - 并行任务依赖单个并行任务`() = runTest {
+        runTest(listOf(ParallelTaskF(), ParallelTaskG()), onCompletion = {
+            assertEquals(2, logList.size)
+            val taskNames = logList.map { it.substringBefore(" on") }
+            assertTrue(taskNames.indexOf("ParallelTaskF") < taskNames.indexOf("ParallelTaskG"))
+            assertTrue(logList[0].contains("DefaultDispatcher"))
+            assertTrue(logList[1].contains("DefaultDispatcher"))
+        })
+    }
+
+    @Test
+    fun `6 - 并行任务依赖多个并行任务`() = runTest {
+        runTest(listOf(ParallelTaskF(), ParallelTaskG(), ParallelTaskH()), onCompletion = {
+            assertEquals(3, logList.size)
+            val taskNames = logList.map { it.substringBefore(" on") }
+            assertTrue(taskNames.indexOf("ParallelTaskF") < taskNames.indexOf("ParallelTaskH"))
+            assertTrue(taskNames.indexOf("ParallelTaskG") < taskNames.indexOf("ParallelTaskH"))
+        })
+    }
+
+    @Test
+    fun `7 - 依赖关系发生环形依赖异常测试`() = runTest {
+        var caughtException: Throwable? = null
+        runTest(
+            initializers = listOf(CircularTaskI(), CircularTaskJ()),
+            onCompletion = { fail("Should have thrown an exception") },
+            onError = { caughtException = it.first() }
         )
+        assertNotNull(caughtException)
+        assertTrue(caughtException is IllegalStateException)
+        assertTrue(caughtException!!.message!!.contains("Circular dependency detected"))
+        assertTrue(logList.isEmpty())
+    }
 
+    @Test
+    fun `8 - 串行任务依赖了并行任务测试`() = runTest {
+        var caughtException: Throwable? = null
+        runTest(
+            initializers = listOf(ParallelTaskF(), InvalidDependencyTaskK()),
+            onCompletion = { fail("Should have thrown an exception") },
+            onError = { caughtException = it.first() }
+        )
+        assertNotNull(caughtException)
+        assertTrue(caughtException is IllegalStateException)
+        assertTrue(caughtException!!.message!!.contains("Illegal dependency"))
+        assertTrue(logList.isEmpty())
+    }
+
+    @Test
+    fun `9 - 混合依赖测试`() = runTest {
+        runTest(listOf(SerialTaskA(), SerialTaskB(), ParallelTaskF(), ParallelTaskG(), MixedDependencyTaskL()), onCompletion = {
+            assertEquals(5, logList.size)
+            val taskNames = logList.map { it.substringBefore(" on") }
+            assertTrue(taskNames.indexOf("SerialTaskA") < taskNames.indexOf("MixedDependencyTaskL"))
+            assertTrue(taskNames.indexOf("SerialTaskB") < taskNames.indexOf("MixedDependencyTaskL"))
+            assertTrue(taskNames.indexOf("ParallelTaskF") < taskNames.indexOf("MixedDependencyTaskL"))
+            assertTrue(taskNames.indexOf("ParallelTaskG") < taskNames.indexOf("MixedDependencyTaskL"))
+        })
+    }
+
+    @Test
+    fun `10 - 并行任务异常传播测试`() = runTest {
+        var caughtExceptions: List<Throwable>? = null
+        runTest(
+            initializers = listOf(ExceptionTaskM(), DependentOnExceptionTaskN()),
+            onCompletion = { fail("Should have triggered onError") },
+            onError = { caughtExceptions = it }
+        )
+        assertNotNull(caughtExceptions)
+        assertTrue(caughtExceptions!!.isNotEmpty())
+        assertEquals("M task failed deliberately!", caughtExceptions!!.first().message)
+        assertTrue(logList.any { it.startsWith("ExceptionTaskM_Start") })
+        assertFalse(logList.any { it.startsWith("DependentOnExceptionTaskN") })
+    }
+
+    @Test
+    fun `11 - 取消操作测试`() = runTest {
+        // 使用 CompletableDeferred 来确保回调被调用
+        val errorCompletable = CompletableDeferred<List<Throwable>>()
+        val initializerList = listOf(SerialTaskA(), SerialTaskB(), ParallelTaskF(), ParallelTaskG())
         val startup = Startup(
             context = mockContext,
-            initializers = initializers,
-            onCompletion = {
-                println("Test: All initializers completed!")
-                // 当 onCompletion 被调用时，向 Channel 发送一个信号
-                completionChannel.trySend(true)
+            initializers = initializerList,
+            onCompletion = { fail("Should have been cancelled") },
+            onError = {
+                // 当 onError 被调用时，完成 CompletableDeferred
+                errorCompletable.complete(it)
             }
         )
-
         startup.start()
+        // 稍微延迟一下，确保 start() 里的协程有机会启动
+        delay(10)
+        startup.cancel()
 
-        // 等待 onCompletion 被调用，设置超时以防测试卡死
-        val completed = completionChannel.receive()
-
-        assertThat(completed).isTrue()
-    }
-
-    @Test
-    fun `校验失败 - 串行任务依赖并行任务应抛出异常`() {
-        val initializers = listOf(
-            InitializerA(), // 并行
-            InvalidInitializerF() // 串行，依赖 A
-        )
-
-        // 将 assertThrows 放在 runTest 内部
-        val exception = assertThrows(IllegalStateException::class.java) {
-            // 直接调用 start，因为我们已经在 runTest 块中
-            Startup(
-                context = mockContext,
-                initializers = initializers,
-                onCompletion = { /* 不会执行 */ }
-            ).start()
-
-            // 由于 start() 内部是 launch，它会立即返回。
-            // 为了让测试能够捕获到 launch 内部的异常，我们需要让协程前进。
-            // runTest 会自动处理这一点，但有时需要手动推进。
-            // 在这个特定场景下，因为我们的校验在 launch 之前，所以能直接捕获。
-            // 但更稳妥的方式是让 launch 执行并等待。
-        }
-
-        println("Caught expected exception: ${exception.message}")
-        assertThat(exception.message).contains(
-            "Serial initializer 'InvalidInitializerF' cannot depend on Parallel initializer 'InitializerA'"
-        )
-
-    }
-
-    @Test
-    fun `校验失败 - 循环依赖应抛出异常`() {
-        val initializers = listOf(
-            CircularInitializerG(),
-            CircularInitializerH()
-        )
-
-        // 将 assertThrows 放在 runTest 内部
-        val exception = assertThrows(IllegalStateException::class.java) {
-            Startup(
-                context = mockContext,
-                initializers = initializers,
-                onCompletion = { /* 不会执行 */ }
-            ).start()
-        }
-
-        println("Caught expected exception: ${exception.message}")
-        assertThat(exception.message).contains("Circular dependency detected")
-    }
-
-    @Test
-    fun `执行顺序 - 并行任务D必须在串行任务B之后执行`() = runTest {
-        val executionLog = mutableListOf<String>()
-        val completionChannel = Channel<Boolean>(1)
-
-        // 自定义 Initializer 来记录执行顺序
-        class LoggingB : Initializer<Unit>() {
-            override fun initMode() = InitMode.SERIAL
-            override suspend fun init(context: Context, dispatcher: ResultDispatcher) {
-                executionLog.add("B_start")
-                delay(100)
-                executionLog.add("B_end")
+        // 等待 onError 回调，设置超时
+        val caughtExceptions = withContext(Dispatchers.Default) {
+            withTimeout(2000) {
+                errorCompletable.await()
             }
         }
 
-        class LoggingD : Initializer<Unit>() {
-            override fun dependencies() = listOf(LoggingB::class.java)
-            override suspend fun init(context: Context, dispatcher: ResultDispatcher) {
-                executionLog.add("D_start")
-                delay(10)
-                executionLog.add("D_end")
-            }
-        }
+        // 现在进行正确的断言
+        assertNotNull(caughtExceptions)
+        // 验证捕获的异常中至少有一个是 CancellationException
+        assertTrue(caughtExceptions.any { it is CancellationException })
+        // 任务可能执行了部分，但绝不会全部执行完
+        assertTrue(logList.size < initializerList.size)
+    }
+}
 
-        Startup(
-            context = mockContext,
-            initializers = listOf(LoggingB(), LoggingD()),
-            onCompletion = { completionChannel.trySend(true) }
-        ).start()
+// 辅助类，用于自动设置和清理 Main dispatcher
+@ExperimentalCoroutinesApi
+class MainDispatcherRule(
+    private val testDispatcher: TestDispatcher = UnconfinedTestDispatcher(),
+) : org.junit.rules.TestWatcher() {
+    override fun starting(description: org.junit.runner.Description) {
+        Dispatchers.setMain(testDispatcher)
+    }
 
-        completionChannel.receive() // 等待所有任务完成
-
-        // 断言 B_end 的日志记录在 D_start 之前
-        assertThat(executionLog).containsExactly("B_start", "B_end", "D_start", "D_end").inOrder()
-        val indexOfBEnd = executionLog.indexOf("B_end")
-        val indexOfDStart = executionLog.indexOf("D_start")
-        assertThat(indexOfBEnd).isLessThan(indexOfDStart)
+    override fun finished(description: org.junit.runner.Description) {
+        Dispatchers.resetMain()
     }
 }

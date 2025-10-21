@@ -8,9 +8,9 @@ class App : Application() {
         super.onCreate()
         Startup(
             this,
-            listOf(InitD(), InitC(), InitB(), InitA())
-        ) {
-            println("initEnd")
-        }.start()
+            listOf(InitD(), InitC(), InitB(), InitA()),
+            onCompletion = { },
+            onError = {}
+        ).start()
     }
 }

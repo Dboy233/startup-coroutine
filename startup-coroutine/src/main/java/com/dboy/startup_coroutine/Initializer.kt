@@ -28,5 +28,5 @@ abstract class Initializer<T> {
      * 定义此任务的初始化模式（串行或并行）。
      * @return [InitMode]。默认为并行。
      */
-    open fun initMode(): InitMode = InitMode.PARALLEL
+    open fun initMode(): InitMode = InitMode.SERIAL
 }
