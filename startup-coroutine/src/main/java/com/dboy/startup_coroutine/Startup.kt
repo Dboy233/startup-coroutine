@@ -56,33 +56,46 @@ class Startup(
     private val onCompletion: () -> Unit,
     private val onError: ((List<Throwable>) -> Unit)? = null // 新增：用于报告所有异常的统一回调
 ) : DependenciesProvider {
-    // 用于存储每个初始化任务的结果
+
+    // Stores the results of each initializer.
+    // 用于存储每个初始化任务的结果。
     private val results = ConcurrentHashMap<KClass<out Initializer<*>>, Any>()
 
-    // CoroutineScope 来管理所有初始化任务的生命周期
+    // A CoroutineScope to manage the lifecycle of all initialization tasks.
+    // CoroutineScope 用于管理所有初始化任务的生命周期。
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // 使用单一线程的协程上下文来确保串行执行
+    // A single-threaded coroutine context to ensure serial execution.
+    // 使用单一线程的协程上下文来确保串行执行。
     private val serialContext = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
-    // 原子状态锁，防止 start() 方法被多次调用
+    // Atomic flag to prevent multiple invocations of the start() method.
+    // 原子状态锁，防止 start() 方法被多次调用。
     private val started = AtomicBoolean(false)
 
     /**
+     * Starts the entire initialization process.
+     * This method is thread-safe and can only be successfully invoked once.
+     *
+     * --- (中文说明) ---
+     *
      * 启动整个初始化流程。
      * 此方法是线程安全的，且只能被成功调用一次。
      */
     fun start() {
         // 使用 compareAndSet 确保 start 逻辑只执行一次
+        // Use compareAndSet to ensure that the start logic is executed only once
         if (!started.compareAndSet(false, true)) {
-            // 如果已经启动，可以选择静默返回或记录一个警告
+            // Already started, return silently or log a warning.
+            // 如果已经启动，可以选择静默返回或记录一个警告。
             return
         }
 
         scope.launch {
             val exceptions = mutableListOf<Throwable>()
             try {
-                // 1. 合并了验证和拓扑排序，减少遍历次数
+                // 1. Sorts and validates initializers topologically.
+                // 1. 对任务进行拓扑排序和验证。
                 val sortedInitializers = topologicalSortAndValidate(initializers)
 
                 val serialInitializers =
@@ -90,22 +103,25 @@ class Startup(
                 val parallelInitializers =
                     sortedInitializers.filter { it.initMode() == InitMode.PARALLEL }
 
-                // 2. 执行所有串行任务
-                // 如果串行任务失败，将立即抛出异常并终止整个启动流程
+                // 2. Execute all serial tasks. A failure here will throw an exception and terminate the process immediately.
+                // 2. 执行所有串行任务。如果串行任务失败，将立即抛出异常并终止整个启动流程。
                 for (initializer in serialInitializers) {
                     withContext(serialContext) {
                         execute(initializer)
                     }
                 }
 
-                // 3. 按依赖关系执行所有并行任务
-                // 使用 supervisorScope 隔离并行任务，一个任务的失败不会取消其他任务
+                // 3. Execute all parallel tasks with dependency awareness.
+                //    Uses supervisorScope to isolate failures, so one failing task doesn't cancel others.
+                // 3. 按依赖关系执行所有并行任务。
+                //    使用 supervisorScope 隔离并行任务，一个任务的失败不会取消其他任务。
                 supervisorScope {
                     val parallelJobs = mutableMapOf<KClass<out Initializer<*>>, Deferred<*>>()
 
                     for (initializer in parallelInitializers) {
                         val job = async(Dispatchers.Default) {
-                            // 在启动当前任务前，先等待其所有依赖项完成
+                            // Before starting the current task, wait for its dependencies to complete.
+                            // 在启动当前任务前，先等待其所有依赖项完成。
                             val dependencyJobs = initializer.dependencies()
                                 .mapNotNull { dependencyClass -> parallelJobs[dependencyClass] }
 
@@ -113,41 +129,46 @@ class Startup(
                             // 如果任何依赖项失败，awaitAll会抛出异常，此任务也将失败
                             dependencyJobs.awaitAll()
 
-                            // 所有依赖都完成后，执行当前任务
+                            // After all dependencies are met, execute the current task.
+                            // 所有依赖都完成后，执行当前任务。
                             execute(initializer)
                         }
                         parallelJobs[initializer::class] = job
                     }
 
+                    // Wait for all parallel jobs to complete (successfully or with failure).
                     // 等待所有并行任务完成（无论成功或失败）。
-                    // awaitAll 在 supervisorScope 下，会等待所有 job 结束，
-                    // 然后抛出一个包含所有子任务异常的复合异常。
                     parallelJobs.values.awaitAll()
                 }
 
             } catch (e: Throwable) {
-                // 捕获所有在启动流程中发生的异常
-                // 包括串行任务的失败和并行任务的复合异常
+                // Catches all exceptions from the startup process, including failures from serial tasks
+                // and composite exceptions from parallel tasks.
+                // 捕获所有在启动流程中发生的异常，包括串行任务的失败和并行任务的复合异常。
                 exceptions.add(e)
-                // 收集所有被抑制的异常（来自 awaitAll 的多个失败任务）
+                // Collect all suppressed exceptions (from multiple failing jobs in awaitAll).
+                // 收集所有被抑制的异常（来自 awaitAll 的多个失败任务）。
                 e.suppressed.forEach { exceptions.add(it) }
             } finally {
-                // 确保单线程上下文被关闭
+                // Ensure the single-threaded context is closed.
+                // 确保单线程上下文被关闭。
                 serialContext.close()
 
-
-                // **关键修改**：检查 scope 是否被主动取消
+                // If the scope was cancelled, ensure a CancellationException is reported.
+                // 如果 scope 被主动取消，确保一个 CancellationException 被报告。
                 if (scope.coroutineContext[Job]?.isCancelled == true && exceptions.none { it is CancellationException }) {
                     // 如果是被取消的，并且异常列表里还没有 CancellationException，就手动添加一个
                     exceptions.add(CancellationException("Startup was cancelled."))
                 }
 
-                // 检查是否发生了异常
+                // Check if any exceptions occurred.
+                // 检查是否发生了异常。
                 if (exceptions.isNotEmpty()) {
                     // 如果有错误回调，则调用它
                     onError?.invoke(exceptions)
                 } else {
-                    // 4. 所有任务成功完成后，在主线程上调用完成回调
+                    // If all tasks succeeded, invoke the completion callback on the main thread.
+                    // 4. 所有任务成功完成后，在主线程上调用完成回调。
                     withContext(Dispatchers.Main) {
                         onCompletion.invoke()
                     }
@@ -157,19 +178,23 @@ class Startup(
     }
 
     /**
-     * 执行单个初始化任务并存储其结果。
+     * Executes a single initializer and stores its result if it's not Unit.
+     * --- (中文说明) ---
+     * 执行单个初始化任务并存储其结果（如果结果不是 Unit）。
      */
     private suspend fun execute(initializer: Initializer<*>) {
         val result = initializer.init(context, this)
-        // 只有当结果不是 Unit 时，才将其存入 results Map
         if (result !is Unit && result != null) {
             results[initializer::class] = result
         }
     }
 
     /**
+     * Sorts initializers topologically and validates their dependencies.
+     * Throws an exception if a circular or illegal dependency is detected.
+     * --- (中文说明) ---
      * 对初始化任务进行拓扑排序并验证依赖关系。
-     * 合并了验证逻辑以提高效率。如果存在循环依赖或非法依赖，会抛出异常。
+     * 如果存在循环依赖或非法依赖，会抛出异常。
      */
     private fun topologicalSortAndValidate(initializers: List<Initializer<*>>): List<Initializer<*>> {
         val sortedList = mutableListOf<Initializer<*>>()
@@ -178,9 +203,8 @@ class Startup(
             mutableMapOf<KClass<out Initializer<*>>, MutableList<KClass<out Initializer<*>>>>()
         val initializerMap = initializers.associateBy { it::class }
 
-        // =========================================================
-        // 阶段一：执行所有验证 (Validation)
-        // =========================================================
+        // --- Stage 1: Validation ---
+        // --- 阶段一：执行所有验证 ---
         for (initializer in initializers) {
             // 1. 初始化每个节点的图结构和入度
             inDegree[initializer::class] = 0
@@ -203,9 +227,8 @@ class Startup(
             }
         }
 
-        // =========================================================
-        // 阶段二：构建图并计算入度 (Graph Building)
-        // =========================================================
+        // --- Stage 2: Graph Building ---
+        // --- 阶段二：构建图并计算入度 ---
         for (initializer in initializers) {
             for (dependency in initializer.dependencies()) {
                 graph[dependency]?.add(initializer::class)
@@ -213,9 +236,8 @@ class Startup(
             }
         }
 
-        // =========================================================
-        // 阶段三：执行拓扑排序 (Topological Sort)
-        // =========================================================
+        // --- Stage 3: Topological Sort ---
+        // --- 阶段三：执行拓扑排序 ---
         val queue = ArrayDeque(inDegree.filterValues { it == 0 }.keys)
 
         while (queue.isNotEmpty()) {
@@ -238,8 +260,9 @@ class Startup(
     }
 
     /**
+     * Cancels all ongoing initialization tasks.
+     * --- (中文说明) ---
      * 取消所有正在进行的初始化任务。
-     * 如果启动流程还未开始，则直接取消 scope；如果已开始，则会中断正在执行的任务。
      */
     fun cancel() {
         if (started.get()) {
@@ -251,7 +274,9 @@ class Startup(
 
 
     /**
-     * 根据 Class 类型安全地获取已完成的依赖项的结果。
+     * Retrieves the result of a completed dependency. Throws an exception if the result is unavailable.
+     * --- (中文说明) ---
+     * 获取一个已完成依赖项的结果。如果结果不可用，则抛出异常。
      */
     override fun <T> result(dependency: KClass<out Initializer<*>>): T {
         // 由于拓扑排序和执行流程保证了依赖项已经执行完毕，这里可以安全地获取结果。
@@ -259,13 +284,16 @@ class Startup(
             ?: throw IllegalStateException("Result for ${dependency.simpleName} not found. Is it declared as a dependency and does it return a non-Unit value?")
     }
 
+    /**
+     * Safely retrieves the result of a completed dependency, or `null` if it's unavailable.
+     * --- (中文说明) ---
+     * 安全地获取一个已完成依赖项的结果，如果结果不可用则返回 `null`。
+     */
     @Suppress("UNCHECKED_CAST")
     override fun <T> resultOrNull(dependency: KClass<out Initializer<*>>): T? {
-        // 这里的类型转换在逻辑上是安全的，因为：
-        // 1. `execute()` 方法是唯一写入 results 的地方。
-        // 2. `execute()` 方法保证了存入的 key (initializer.javaClass) 和 value (result)
-        //    的泛型类型 T 是匹配的。
-        // 因此，我们抑制了“未经检查的转换”警告。
+        // This cast is logically safe because the `execute` method ensures that the type
+        // of the stored result matches the generic type of its initializer class key.
+        // 这里的类型转换在逻辑上是安全的，因为 `execute()` 方法保证了存入的 key 和 value 的泛型类型是匹配的。
         return results[dependency] as? T
     }
 }
