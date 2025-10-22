@@ -17,19 +17,47 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.reflect.KClass
 
 /**
- * 启动和管理所有初始化任务的核心类。
- * 经过优化，增强了异常处理和执行稳定性。
+ * 一个基于协程的、支持依赖关系、并行化和高级错误处理的异步启动框架。
+ *
+ * 该框架通过拓扑排序来管理复杂的初始化依赖关系，并允许任务在主线程（串行）
+ * 或后台线程（并行）上执行。它能确保所有任务按正确顺序执行，并在所有任务
+ * 完成或发生错误后提供统一的回调。
+ *
+ * ### 主要特性
+ * - **依赖管理**: 自动处理任务间的依赖关系。
+ * - **并行执行**: 无依赖关系的任务可以并行执行以缩短启动时间。
+ * - **异常隔离**: 使用 `supervisorScope` 确保单个并行任务的失败不会影响其他任务。
+ * - **统一错误报告**: 通过 `onError` 回调聚合所有发生的异常。
+ * - **可取消**: 可以随时安全地取消整个启动流程。
+ *
+ * @param context Android Application Context。
+ * @param initializers 所有需要执行的 [Initializer] 任务列表。
+ * @param onCompletion 所有任务成功执行后的回调，在主线程上调用。
+ * @param onError 任何任务执行失败后的回调，在一个后台线程上调用。
+ *
+ * @sample
+ * // class AnalyticsInitializer : Initializer<AnalyticsSDK>() { ... }
+ * // class AdsInitializer : Initializer<Unit>() { ... }
+ *
+ * val startup = Startup(
+ *     context = applicationContext,
+ *     initializers = listOf(AnalyticsInitializer(), AdsInitializer()),
+ *     onCompletion = { Log.d("App", "All initializers completed!") },
+ *     onError = { errors -> Log.e("App", "Startup failed with ${errors.size} errors.") }
+ * )
+ * startup.start()
  */
 class Startup(
     private val context: Context,
     private val initializers: List<Initializer<*>>,
     private val onCompletion: () -> Unit,
     private val onError: ((List<Throwable>) -> Unit)? = null // 新增：用于报告所有异常的统一回调
-) : ResultDispatcher {
+) : DependenciesProvider {
     // 用于存储每个初始化任务的结果
-    private val results = ConcurrentHashMap<Class<out Initializer<*>>, Any>()
+    private val results = ConcurrentHashMap<KClass<out Initializer<*>>, Any>()
 
     // CoroutineScope 来管理所有初始化任务的生命周期
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -73,7 +101,7 @@ class Startup(
                 // 3. 按依赖关系执行所有并行任务
                 // 使用 supervisorScope 隔离并行任务，一个任务的失败不会取消其他任务
                 supervisorScope {
-                    val parallelJobs = mutableMapOf<Class<out Initializer<*>>, Deferred<*>>()
+                    val parallelJobs = mutableMapOf<KClass<out Initializer<*>>, Deferred<*>>()
 
                     for (initializer in parallelInitializers) {
                         val job = async(Dispatchers.Default) {
@@ -88,7 +116,7 @@ class Startup(
                             // 所有依赖都完成后，执行当前任务
                             execute(initializer)
                         }
-                        parallelJobs[initializer.javaClass] = job
+                        parallelJobs[initializer::class] = job
                     }
 
                     // 等待所有并行任务完成（无论成功或失败）。
@@ -133,9 +161,9 @@ class Startup(
      */
     private suspend fun execute(initializer: Initializer<*>) {
         val result = initializer.init(context, this)
-        // 使用 Any? 来处理 Unit 返回类型
-        (result as? Any)?.let {
-            results[initializer.javaClass] = it
+        // 只有当结果不是 Unit 时，才将其存入 results Map
+        if (result !is Unit && result != null) {
+            results[initializer::class] = result
         }
     }
 
@@ -145,43 +173,49 @@ class Startup(
      */
     private fun topologicalSortAndValidate(initializers: List<Initializer<*>>): List<Initializer<*>> {
         val sortedList = mutableListOf<Initializer<*>>()
-        val inDegree = mutableMapOf<Class<out Initializer<*>>, Int>()
-        val graph = mutableMapOf<Class<out Initializer<*>>, MutableList<Class<out Initializer<*>>>>()
-        val initializerMap = initializers.associateBy { it.javaClass }
+        val inDegree = mutableMapOf<KClass<out Initializer<*>>, Int>()
+        val graph =
+            mutableMapOf<KClass<out Initializer<*>>, MutableList<KClass<out Initializer<*>>>>()
+        val initializerMap = initializers.associateBy { it::class }
 
-        // 初始化入度和图，并在此处进行依赖验证
+        // =========================================================
+        // 阶段一：执行所有验证 (Validation)
+        // =========================================================
         for (initializer in initializers) {
-            val clazz = initializer.javaClass
-            inDegree[clazz] = 0
-            graph[clazz] = mutableListOf()
+            // 1. 初始化每个节点的图结构和入度
+            inDegree[initializer::class] = 0
+            graph[initializer::class] = mutableListOf()
 
-            // **验证逻辑**: 串行任务不能依赖并行任务
+            // 2. 遍历其所有依赖项，进行验证
             if (initializer.initMode() == InitMode.SERIAL) {
                 for (dependencyClass in initializer.dependencies()) {
+                    // 验证 A: 依赖项是否已注册？
                     val dependency = initializerMap[dependencyClass]
-                        ?: throw IllegalStateException("Dependency ${dependencyClass.simpleName} for ${initializer.javaClass.simpleName} not found.")
+                        ?: throw IllegalStateException("Dependency ${dependencyClass.simpleName} for ${initializer::class.simpleName} not found in the initializers list.")
 
-                    if (dependency.initMode() == InitMode.PARALLEL) {
+                    // 验证 B: 当前任务是串行时，其依赖项是否也是串行？
+                    if (initializer.initMode() == InitMode.SERIAL && dependency.initMode() == InitMode.PARALLEL) {
                         throw IllegalStateException(
-                            "Illegal dependency: Serial initializer '${initializer.javaClass.simpleName}' cannot depend on Parallel initializer '${dependency.javaClass.simpleName}'."
+                            "Illegal dependency: Serial initializer '${initializer::class.simpleName}' cannot depend on Parallel initializer '${dependency::class.simpleName}'."
                         )
                     }
                 }
             }
         }
 
-        // 构建图和计算入度
+        // =========================================================
+        // 阶段二：构建图并计算入度 (Graph Building)
+        // =========================================================
         for (initializer in initializers) {
             for (dependency in initializer.dependencies()) {
-                if (!initializerMap.containsKey(dependency)) {
-                    throw IllegalStateException("${initializer.javaClass.simpleName} depends on ${dependency.simpleName}, which is not in the initializers list.")
-                }
-                graph[dependency]?.add(initializer.javaClass)
-                inDegree[initializer.javaClass] = (inDegree[initializer.javaClass] ?: 0) + 1
+                graph[dependency]?.add(initializer::class)
+                inDegree[initializer::class] = (inDegree[initializer::class] ?: 0) + 1
             }
         }
 
-        // 拓扑排序核心算法 (Kahn's algorithm)
+        // =========================================================
+        // 阶段三：执行拓扑排序 (Topological Sort)
+        // =========================================================
         val queue = ArrayDeque(inDegree.filterValues { it == 0 }.keys)
 
         while (queue.isNotEmpty()) {
@@ -215,13 +249,23 @@ class Startup(
         scope.cancel("Startup cancelled by caller.")
     }
 
+
     /**
      * 根据 Class 类型安全地获取已完成的依赖项的结果。
      */
-    @Suppress("UNCHECKED_CAST")
-    override fun <T> getResult(dependency: Class<out Initializer<T>>): T {
+    override fun <T> result(dependency: KClass<out Initializer<*>>): T {
         // 由于拓扑排序和执行流程保证了依赖项已经执行完毕，这里可以安全地获取结果。
-        return results[dependency] as? T
+        return resultOrNull(dependency)
             ?: throw IllegalStateException("Result for ${dependency.simpleName} not found. Is it declared as a dependency and does it return a non-Unit value?")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> resultOrNull(dependency: KClass<out Initializer<*>>): T? {
+        // 这里的类型转换在逻辑上是安全的，因为：
+        // 1. `execute()` 方法是唯一写入 results 的地方。
+        // 2. `execute()` 方法保证了存入的 key (initializer.javaClass) 和 value (result)
+        //    的泛型类型 T 是匹配的。
+        // 因此，我们抑制了“未经检查的转换”警告。
+        return results[dependency] as? T
     }
 }

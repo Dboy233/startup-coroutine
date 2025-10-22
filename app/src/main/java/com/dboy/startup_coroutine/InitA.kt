@@ -10,7 +10,7 @@ import kotlinx.coroutines.delay
 class InitA : Initializer<String>() {
     override suspend fun init(
         context: Context,
-        resultDispatcher: ResultDispatcher
+        dependenciesProvider: DependenciesProvider
     ): String {
         Log.d("Initializer", "init: A 网络请求用户数据")
         delay(1000)

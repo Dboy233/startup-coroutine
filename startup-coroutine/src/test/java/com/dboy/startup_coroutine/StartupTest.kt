@@ -1,4 +1,3 @@
-// StartupTest.kt
 package com.dboy.startup_coroutine
 
 import android.content.Context
@@ -6,7 +5,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -16,7 +14,11 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.After
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -54,7 +56,7 @@ class StartupTest {
         onCompletion: () -> Unit,
         onError: ((List<Throwable>) -> Unit)? = null
     ) {
-        suspendCancellableCoroutine<Unit>{
+        suspendCancellableCoroutine<Unit> {
             val startup = Startup(
                 context = mockContext,
                 initializers = initializers,
@@ -62,7 +64,7 @@ class StartupTest {
                     onCompletion()
                     it.resume(Unit)
                 },
-                onError = { e->
+                onError = { e ->
                     onError?.invoke(e)
                     it.resume(Unit)
                 }
@@ -84,7 +86,7 @@ class StartupTest {
             val threadB = logList[1].substringAfter("on ")
             assertEquals(threadA, threadB)
         }, onError = {
-            it.forEach { e->
+            it.forEach { e ->
                 println(e)
             }
 
@@ -176,14 +178,21 @@ class StartupTest {
 
     @Test
     fun `9 - 混合依赖测试`() = runTest {
-        runTest(listOf(SerialTaskA(), SerialTaskB(), ParallelTaskF(), ParallelTaskG(), MixedDependencyTaskL()), onCompletion = {
-            assertEquals(5, logList.size)
-            val taskNames = logList.map { it.substringBefore(" on") }
-            assertTrue(taskNames.indexOf("SerialTaskA") < taskNames.indexOf("MixedDependencyTaskL"))
-            assertTrue(taskNames.indexOf("SerialTaskB") < taskNames.indexOf("MixedDependencyTaskL"))
-            assertTrue(taskNames.indexOf("ParallelTaskF") < taskNames.indexOf("MixedDependencyTaskL"))
-            assertTrue(taskNames.indexOf("ParallelTaskG") < taskNames.indexOf("MixedDependencyTaskL"))
-        })
+        runTest(
+            listOf(
+                SerialTaskA(),
+                SerialTaskB(),
+                ParallelTaskF(),
+                ParallelTaskG(),
+                MixedDependencyTaskL()
+            ), onCompletion = {
+                assertEquals(5, logList.size)
+                val taskNames = logList.map { it.substringBefore(" on") }
+                assertTrue(taskNames.indexOf("SerialTaskA") < taskNames.indexOf("MixedDependencyTaskL"))
+                assertTrue(taskNames.indexOf("SerialTaskB") < taskNames.indexOf("MixedDependencyTaskL"))
+                assertTrue(taskNames.indexOf("ParallelTaskF") < taskNames.indexOf("MixedDependencyTaskL"))
+                assertTrue(taskNames.indexOf("ParallelTaskG") < taskNames.indexOf("MixedDependencyTaskL"))
+            })
     }
 
     @Test

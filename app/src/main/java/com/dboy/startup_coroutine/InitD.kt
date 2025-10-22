@@ -10,7 +10,7 @@ import kotlinx.coroutines.delay
 class InitD: Initializer<Unit>() {
     override suspend fun init(
         context: Context,
-        resultDispatcher: ResultDispatcher
+        dependenciesProvider: DependenciesProvider
     ) {
         Log.d("Initializer", "initD:并行任务 开始执行")
         delay(200)

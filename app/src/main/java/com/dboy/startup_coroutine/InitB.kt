@@ -10,7 +10,7 @@ import kotlinx.coroutines.delay
 class InitB : Initializer<Unit>() {
     override suspend fun init(
         context: Context,
-        resultDispatcher: ResultDispatcher
+        dependenciesProvider: DependenciesProvider
     ) {
         Log.d("Initializer", "initB:串行任务 开始执行")
         //获取用户配置文件，没有返回结果
