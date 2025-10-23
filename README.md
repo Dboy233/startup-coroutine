@@ -1,7 +1,4 @@
-txt
-
 <div align="center">
-  <img src="转存失败，建议直接上传图片文件 https://user-images.githubusercontent.com/12868215/154829393-d6706911-3949-4933-a2ac-677a33f1911e.png" alt="Logo转存失败，建议直接上传图片文件" width="120" height="120">
   <h1 align="center">Startup-Coroutine</h1>
   <p align="center">
     一个基于 Kotlin 协程的 Android 启动框架，优雅地管理您的应用初始化流程。
@@ -60,46 +57,46 @@ txt
 一个用于初始化分析服务的并行任务（`AnalyticsInitializer`），以及另一个依赖于它的广告 SDK 初始化任务（`AdsInitializer`）。
 
 ```kotlin
- 
-    // AnalyticsInitializer.kt
-    // 一个模拟耗时并返回 SDK 对象的并行任务
-    class AnalyticsInitializer : Initializer<AnalyticsSDK>() {
-    
-        override suspend fun init(context: Context, provider: DependenciesProvider): AnalyticsSDK {
-            // 模拟一个耗时的 I/O 操作
-            delay(1000)
-            println("分析服务 SDK 已在线程初始化: \${Thread.currentThread().name}")
-            return AnalyticsSDK("Analytics-SDK-Instance")
-        }
 
-        // 在后台线程池中运行此任务
-        override fun initMode(): InitMode = InitMode.PARALLEL
+// AnalyticsInitializer.kt
+// 一个模拟耗时并返回 SDK 对象的并行任务
+class AnalyticsInitializer : Initializer<AnalyticsSDK>() {
 
+    override suspend fun init(context: Context, provider: DependenciesProvider): AnalyticsSDK {
+        // 模拟一个耗时的 I/O 操作
+        delay(1000)
+        println("分析服务 SDK 已在线程初始化: \${Thread.currentThread().name}")
+        return AnalyticsSDK("Analytics-SDK-Instance")
     }
 
-    // AdsInitializer.kt
-    // 一个依赖于 AnalyticsInitializer 的串行任务
-    class AdsInitializer : Initializer<Unit>() {
-    
-        override suspend fun init(context: Context, provider: DependenciesProvider) {
-            // 从依赖提供者处获取依赖项的结果
-            val analyticsSDK = provider.result<AnalyticsSDK>(AnalyticsInitializer::class)
-            println("广告 SDK 正在使用: ${analyticsSDK.name}，位于线程: ${Thread.currentThread().name}")
-            // 在此处进行广告 SDK 的初始化...
-            }
+    // 在后台线程池中运行此任务
+    override fun initMode(): InitMode = InitMode.PARALLEL
 
-            // 定义依赖关系
-            override fun dependencies(): List<KClass<out Initializer<*>>> {
-                return listOf(AnalyticsInitializer::class)
-            }
+}
 
-            // 在主线程上运行此任务 (默认行为)
-            override fun initMode(): InitMode = InitMode.SERIAL
+// AdsInitializer.kt
+// 一个依赖于 AnalyticsInitializer 的串行任务
+class AdsInitializer : Initializer<Unit>() {
 
+    override suspend fun init(context: Context, provider: DependenciesProvider) {
+        // 从依赖提供者处获取依赖项的结果
+        val analyticsSDK = provider.result<AnalyticsSDK>(AnalyticsInitializer::class)
+        println("广告 SDK 正在使用: ${analyticsSDK.name}，位于线程: ${Thread.currentThread().name}")
+        // 在此处进行广告 SDK 的初始化...
     }
 
-    // 用于示例的虚拟类
-    data class AnalyticsSDK(val name: String)
+    // 定义依赖关系
+    override fun dependencies(): List<KClass<out Initializer<*>>> {
+        return listOf(AnalyticsInitializer::class)
+    }
+
+    // 在主线程上运行此任务 (默认行为)
+    override fun initMode(): InitMode = InitMode.SERIAL
+
+}
+
+// 用于示例的虚拟类
+data class AnalyticsSDK(val name: String)
 ```
 
 ### 第二步：配置并启动框架
@@ -109,8 +106,8 @@ txt
 ```kotlin
 // MyApplication.kt
 class MyApplication : Application() {
-   
-   override fun onCreate() {
+
+    override fun onCreate() {
         super.onCreate()
 
         val startup = Startup(
