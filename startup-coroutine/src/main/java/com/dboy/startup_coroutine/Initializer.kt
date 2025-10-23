@@ -92,11 +92,9 @@ abstract class Initializer<T> {
      * - [InitMode.PARALLEL]: The task will be executed concurrently in a background thread pool. Ideal for long-running operations.
      *
      * --- (中文说明) ---
-     *
      * 定义此任务的执行模式。
-     *
-     * - [InitMode.SERIAL]: 任务将在主线程上按顺序执行。适用于需要访问UI或有严格先后顺序的任务。
-     * - [InitMode.PARALLEL]: 任务将在后台线程池中与其他并行任务一起执行。适用于不依赖主线程的耗时操作。
+     * - [InitMode.SERIAL] : 任务将在主线程上按顺序执行。适用于需要访问UI或有严格先后顺序的任务。
+     * - [InitMode.PARALLEL] : 任务将在后台线程池中与其他并行任务一起执行。适用于不依赖主线程的耗时操作。
      *
      * @return The [InitMode]. Defaults to [InitMode.SERIAL].
      * ([InitMode]。默认为 [InitMode.SERIAL]。)

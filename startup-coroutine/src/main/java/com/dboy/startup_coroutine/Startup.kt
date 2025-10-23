@@ -21,7 +21,7 @@ import kotlin.reflect.KClass
 
 /**
  * 一个基于协程的、支持依赖关系、并行化和高级错误处理的异步启动框架。
- *
+ * todo
  * 该框架通过拓扑排序来管理复杂的初始化依赖关系，并允许任务在主线程（串行）
  * 或后台线程（并行）上执行。它能确保所有任务按正确顺序执行，并在所有任务
  * 完成或发生错误后提供统一的回调。
@@ -50,7 +50,7 @@ import kotlin.reflect.KClass
  * )
  * startup.start()
  */
-class Startup(
+open class Startup(
     private val context: Context,
     private val initializers: List<Initializer<*>>,
     private val onCompletion: () -> Unit,
@@ -63,7 +63,8 @@ class Startup(
 
     // A CoroutineScope to manage the lifecycle of all initialization tasks.
     // CoroutineScope 用于管理所有初始化任务的生命周期。
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    //fixme
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // A single-threaded coroutine context to ensure serial execution.
     // 使用单一线程的协程上下文来确保串行执行。
