@@ -30,6 +30,7 @@
 *   [🔧 高级用法](#-高级用法)
     *   [异常处理机制](#异常处理机制)
     *   [循环依赖检测](#循环依赖检测)
+*。 [🆚 与 Jetpack App Startup 对比](#-与-Jetpack-App-Startup-对比)
 *   [🤝 贡献指南](#-贡献指南)
 *   [📄 许可证](#-许可证)
 
@@ -191,7 +192,7 @@ Jetpack App Startup 是一个优秀的库，它通过 `ContentProvider` 实现�
 | 特性 | Jetpack App Startup | startup-coroutine | 优势说明 |
 | :--- | :--- | :--- | :--- |
 | **调用方式** | 自动化、无侵入 | 手动调用 (`startup.start()`) | **startup-coroutine** 提供了更灵活的控制，你可以在任何时机（如同意隐私协议后）启动任务。 |
-| **线程模型** | 在后台线程执行 | **框架后台调度，任务主线程执行** | **startup-coroutine** 的模型对主线程干扰更小，且默认UI安全，开发者只需关注耗时任务的切换。 |
+| **线程模型与异步能力** | 在后台线程执行，不支持 `suspend` | **框架后台调度，任务主线程执行**，原生支持 `susband` 函数 | **startup-coroutine** 的优势是压倒性的：<br>1. **主线程零干扰**：框架自身开销在后台，对启动性能更友好。<br>2. **原生异步支持**：`init` 方法是 `susband` 函数，可以直接调用其他挂起函数（如Retrofit, Room的异步API），代码简洁自然，无需回调。<br>3. **任意线程切换**：可使用 `withContext` 在初始化任务内部轻松、高效地切换任意线程。|
 | **异常处理** | 崩溃（默认） | 隔离并行任务，统一回调 | **startup-coroutine** 通过 `supervisorScope` 提供了更强大的异常隔离能力，单个任务失败不影响其他任务。 |
 | **结果传递** | 支持，但较简单 | `DependenciesProvider` | **startup-coroutine** 提供了类型安全、更直观的结果传递方式。 |
 | **取消支持** | 否 | **是 (`startup.cancel()`)** | **startup-coroutine** 支持在运行时取消整个启动流程，适用于动态模块场景。 |
@@ -214,4 +215,4 @@ Jetpack App Startup 是一个优秀的库，它通过 `ContentProvider` 实现�
 
 ## 📄 许可证
 
-本项目采用 Apache 2.0 许可证。详情请参阅 [LICENSE](https://github.com/Dboy233/startup-coroutine/blob/master/LICENSE) 文件。
+本项目采用 Apache 2.0 许可证。详情请参阅 [LICENSE](https://github.com/Dboy233/startup-coroutine/blob/master/blob/LICENSE) 文件。
