@@ -30,7 +30,7 @@
 *   [🔧 高级用法](#-高级用法)
     *   [异常处理机制](#异常处理机制)
     *   [循环依赖检测](#循环依赖检测)
-*。 [🆚 与 Jetpack App Startup 对比](#-与-Jetpack-App-Startup-对比)
+*   [🆚 与 Jetpack App Startup 对比](#-与-Jetpack-App-Startup-对比)
 *   [🤝 贡献指南](#-贡献指南)
 *   [📄 许可证](#-许可证)
 
