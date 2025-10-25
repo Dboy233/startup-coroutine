@@ -1,68 +1,85 @@
 package com.dboy.startup_coroutine
 
 /**
- * Defines the execution mode for an [Initializer].
+ * Defines the execution strategy for an [Initializer] within the startup process.
  *
- * This determines whether the task should be executed sequentially on the main thread
- * or concurrently on a background thread pool.
+ * This enum controls how tasks are ordered and executed relative to each other, * but importantly, **all tasks are initially dispatched on the main thread**.
+ * This allows for safe UI operations by default. Developers are responsible for moving
+ * any long-running or blocking operations to a background thread using `withContext`.
  *
  * --- (中文说明) ---
  *
- * 定义 [Initializer] 的执行模式。
+ * 定义 [Initializer] 在启动流程中的执行策略。
  *
- * 它决定了任务是在主线程上串行执行，还是在后台线程池中并行执行。
+ * 这个枚举主要控制任务之间的执行顺序关系。但最重要的一点是：**所有任务的启动调度都在主线程上进行**。
+ * 这样做默认保证了UI操作的安全性。开发者有责任使用 `withContext` 将任何长时间运行或阻塞的操作切换到后台线程。
  *
  * @see Initializer.initMode
  */
 enum class InitMode {
 
     /**
-     * **Serial Execution.**
+     * **Serial Execution Strategy.**
      *
-     * The task will be executed on the **main thread** in the order determined by the dependency graph.
-     * This mode is suitable for:
-     * - Tasks that must run on the main thread (e.g., UI-related initializations).
-     * - Quick tasks that have strict execution order requirements.
+     * Tasks marked as `SERIAL` will be executed one after another, in the order
+     * determined by their dependencies.
      *
-     * **Warning**: Do not perform long-running blocking operations in a SERIAL task,
-     * as it will block the main thread and may cause an Application Not Responding (ANR) error.
+     * - **Execution Thread**: Starts on the **main thread**.
+     * - **Use Case**: Suitable for a sequence of tasks that have a strict, non-parallelizable
+     *   order (e.g., Task B must run only after Task A is fully complete).
+     *
+     * **Guidance**: Since execution begins on the main thread, you can directly perform
+     * quick, main-thread-only operations. For any potentially time-consuming work
+     * (like I/O or heavy computation), you **must** wrap it in `withContext(Dispatchers.IO)`
+     * or `withContext(Dispatchers.Default)` to avoid blocking the UI.
      *
      * --- (中文说明) ---
      *
-     * **串行执行模式。**
+     * **串行执行策略。**
      *
-     * 任务将会在 **主线程** 上，按照依赖关系决定的顺序执行。
-     * 此模式适用于：
-     * - 必须在主线程上运行的任务（例如，涉及UI的初始化）。
-     * - 有严格执行顺序要求且耗时较短的任务。
+     * 标记为 `SERIAL` 的任务将会按照其依赖关系决定的顺序，一个接一个地执行。
      *
-     * **警告**：请勿在串行任务中执行长时间的阻塞操作，因为它会阻塞主线程，可能导致应用程序无响应（ANR）。
+     * - **执行线程**: 在 **主线程** 上开始执行。
+     * - **适用场景**: 适用于具有严格、不可并行顺序的一系列任务（例如，任务B必须在任务A完全完成后才能运行）。
+     *
+     * **使用指导**: 由于任务在主线程上启动，你可以直接执行那些耗时短且必须在主线程的操作。
+     * 对于任何可能耗时的工作（如 I/O 或复杂计算），你 **必须** 将其包裹在
+     * `withContext(Dispatchers.IO)` 或 `withContext(Dispatchers.Default)` 中，以避免阻塞UI。
      */
     SERIAL,
 
 
     /**
-     * **Parallel Execution.**
+     * **Parallel Execution Strategy.**
      *
-     * The task will be executed concurrently with other parallel tasks on a **background thread pool**
-     * (`Dispatchers.Default`). This leverages multi-core CPUs to speed up the startup process.
+     * Tasks marked as `PARALLEL` are eligible to run concurrently with other `PARALLEL`
+     * tasks, once their dependencies are met. The framework leverages coroutines to
+     * manage this concurrency efficiently.
      *
-     * This mode is ideal for:
-     * - I/O-bound operations (e.g., network requests, disk reads).
-     * - CPU-bound operations (e.g., complex computations, data parsing).
-     * - Any task that does not require immediate access to the main thread.
+     * - **Execution Thread**: Also starts on the **main thread**. Concurrency is achieved
+     *   through non-blocking suspension and resumption, managed by the coroutine scheduler.
+     * - **Use Case**: The default choice for most tasks. Ideal for any initializer that can
+     *   run independently of others (once its direct dependencies are satisfied).
+     *
+     * **Guidance**: Just like `SERIAL` tasks, execution begins on the main thread.
+     * It is crucial to delegate any blocking or long-running operations to a background
+     * dispatcher using `withContext`. The "parallel" nature refers to the logical execution
+     * flow, allowing the framework to interleave tasks efficiently, not necessarily to
+     * multi-threaded execution unless you explicitly introduce it.
      *
      * --- (中文说明) ---
      *
-     * **并行执行模式。**
+     * **并行执行策略。**
      *
-     * 任务将会在 **后台线程池** (`Dispatchers.Default`) 中，与其他并行任务并发执行。
-     * 这能充分利用多核CPU，以加速启动过程。
+     * 标记为 `PARALLEL` 的任务，在它们的依赖项被满足后，将有资格与其他 `PARALLEL` 任务并发执行。
+     * 框架通过协程来高效地管理这种并发性。
      *
-     * 此模式是以下场景的理想选择：
-     * - I/O密集型操作（如：网络请求、磁盘读写）。
-     * - CPU密集型操作（如：复杂计算、数据解析）。
-     * - 任何不需要立即访问主线程的耗时任务。
+     * - **执行线程**: 同样在 **主线程** 上开始执行。其并发性是通过协程调度器的非阻塞式挂起和恢复来实现的。
+     * - **适用场景**: 大多数任务的默认选择。适用于任何可以独立于其他任务运行的初始化程序（一旦其直接依赖项被满足）。
+     *
+     * **使用指导**: 与 `SERIAL` 任务一样，执行也是在主线程上启动。因此，将任何阻塞或长时间运行的操作
+     * 通过 `withContext` 委托给后台调度器是至关重要的。“并行”的特性指的是逻辑执行流，它允许框架高效地
+     * 交错执行任务，而并非指任务一定在多个线程上执行——除非你明确地引入了多线程。
      */
     PARALLEL
 }

@@ -1,3 +1,5 @@
+@file:Suppress("NonAsciiCharacters")
+
 package com.dboy.startup_coroutine
 
 import android.content.Context
@@ -5,6 +7,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -25,16 +28,13 @@ import org.junit.Test
 import org.mockito.Mockito.mock
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
+import kotlin.reflect.KClass
 
-@OptIn(ExperimentalCoroutinesApi::class) // 启用实验性的测试API
+@OptIn(ExperimentalCoroutinesApi::class)
 class StartupTest {
 
-    // 1. 创建一个测试调度器
-    private val testDispatcher: TestDispatcher = UnconfinedTestDispatcher()
-
-    // 2. 使用 @get:Rule 来自动设置和重置 Main dispatcher
     @get:Rule
-    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
+    val mainDispatcherRule = MainDispatcherRule()
 
     private val mockContext: Context = mock(Context::class.java)
 
@@ -50,27 +50,32 @@ class StartupTest {
         println("------------------------------------")
     }
 
-    // 辅助函数，现在改为 suspend fun，并且不再需要 CountDownLatch
+    /**
+     * MODIFIED: runTest 辅助函数更新
+     *
+     * runTest 的作用域是 testDispatcher。由于 Startup 在 Dispatchers.IO 上启动，
+     * 我们需要在 runTest 的作用域内启动 Startup，并使用 suspendCancellableCoroutine
+     * 等待其完成，这样可以桥接两个不同的上下文。
+     */
     private suspend fun runTest(
         initializers: List<Initializer<*>>,
         onCompletion: () -> Unit,
         onError: ((List<Throwable>) -> Unit)? = null
     ) {
-        suspendCancellableCoroutine<Unit> {
+        suspendCancellableCoroutine { continuation ->
             val startup = Startup(
                 context = mockContext,
                 initializers = initializers,
                 onCompletion = {
                     onCompletion()
-                    it.resume(Unit)
+                    continuation.resume(Unit)
                 },
                 onError = { e ->
                     onError?.invoke(e)
-                    it.resume(Unit)
+                    continuation.resume(Unit)
                 }
             )
             startup.start()
-            // runTest 会自动等待 startup.start() 启动的协程完成
         }
     }
 
@@ -80,16 +85,10 @@ class StartupTest {
         runTest(listOf(SerialTaskA(), SerialTaskB()), onCompletion = {
             completed = true
             assertEquals(2, logList.size)
-            assertTrue(logList[0].startsWith("SerialTaskA"))
-            assertTrue(logList[1].startsWith("SerialTaskB"))
-            val threadA = logList[0].substringAfter("on ")
-            val threadB = logList[1].substringAfter("on ")
-            assertEquals(threadA, threadB)
+            assertTrue(logList[0].startsWith("SerialTaskA on TestMain"))
+            assertTrue(logList[1].startsWith("SerialTaskB on TestMain"))
         }, onError = {
-            it.forEach { e ->
-                println(e)
-            }
-
+            fail("Test should not fail. Errors: ${it.joinToString { e -> e.message ?: "Unknown" }}")
         })
         assertTrue(completed)
     }
@@ -103,6 +102,8 @@ class StartupTest {
             assertEquals("SerialTaskA", logList[0].substringBefore(" on"))
             assertEquals("SerialTaskB", logList[1].substringBefore(" on"))
             assertEquals("SerialTaskC", logList[2].substringBefore(" on"))
+            // 所有任务都应在主线程上执行
+            assertTrue(logList.all { it.contains(" on TestMain") })
         })
         assertTrue(completed)
     }
@@ -111,9 +112,11 @@ class StartupTest {
     fun `3 - 并行任务依赖单个串行任务`() = runTest {
         runTest(listOf(SerialTaskA(), ParallelTaskD()), onCompletion = {
             assertEquals(2, logList.size)
-            assertEquals("SerialTaskA", logList[0].substringBefore(" on"))
-            assertEquals("ParallelTaskD", logList[1].substringBefore(" on"))
-            assertTrue(logList[1].contains("DefaultDispatcher"))
+            val taskNames = logList.map { it.substringBefore(" on") }
+            assertTrue(taskNames.indexOf("SerialTaskA") < taskNames.indexOf("ParallelTaskD"))
+            // MODIFIED: 并行任务现在也在主线程启动
+            assertTrue(logList[0].contains(" on TestMain"))
+            assertTrue(logList[1].contains(" on TestMain"))
         })
     }
 
@@ -124,6 +127,7 @@ class StartupTest {
             val taskNames = logList.map { it.substringBefore(" on") }
             assertTrue(taskNames.indexOf("SerialTaskA") < taskNames.indexOf("ParallelTaskE"))
             assertTrue(taskNames.indexOf("SerialTaskB") < taskNames.indexOf("ParallelTaskE"))
+            assertTrue(logList.all { it.contains(" on TestMain") })
         })
     }
 
@@ -133,8 +137,9 @@ class StartupTest {
             assertEquals(2, logList.size)
             val taskNames = logList.map { it.substringBefore(" on") }
             assertTrue(taskNames.indexOf("ParallelTaskF") < taskNames.indexOf("ParallelTaskG"))
-            assertTrue(logList[0].contains("DefaultDispatcher"))
-            assertTrue(logList[1].contains("DefaultDispatcher"))
+            // MODIFIED: 并行任务现在也在主线程启动
+            assertTrue(logList[0].contains(" on TestMain"))
+            assertTrue(logList[1].contains(" on TestMain"))
         })
     }
 
@@ -145,6 +150,7 @@ class StartupTest {
             val taskNames = logList.map { it.substringBefore(" on") }
             assertTrue(taskNames.indexOf("ParallelTaskF") < taskNames.indexOf("ParallelTaskH"))
             assertTrue(taskNames.indexOf("ParallelTaskG") < taskNames.indexOf("ParallelTaskH"))
+            assertTrue(logList.all { it.contains(" on TestMain") })
         })
     }
 
@@ -192,6 +198,7 @@ class StartupTest {
                 assertTrue(taskNames.indexOf("SerialTaskB") < taskNames.indexOf("MixedDependencyTaskL"))
                 assertTrue(taskNames.indexOf("ParallelTaskF") < taskNames.indexOf("MixedDependencyTaskL"))
                 assertTrue(taskNames.indexOf("ParallelTaskG") < taskNames.indexOf("MixedDependencyTaskL"))
+                assertTrue(logList.all { it.contains(" on TestMain") })
             })
     }
 
@@ -205,43 +212,69 @@ class StartupTest {
         )
         assertNotNull(caughtExceptions)
         assertTrue(caughtExceptions!!.isNotEmpty())
-        assertEquals("M task failed deliberately!", caughtExceptions!!.first().message)
+        assertEquals("M task failed deliberately!", caughtExceptions.first().message)
         assertTrue(logList.any { it.startsWith("ExceptionTaskM_Start") })
         assertFalse(logList.any { it.startsWith("DependentOnExceptionTaskN") })
     }
 
     @Test
     fun `11 - 取消操作测试`() = runTest {
-        // 使用 CompletableDeferred 来确保回调被调用
+
         val errorCompletable = CompletableDeferred<List<Throwable>>()
-        val initializerList = listOf(SerialTaskA(), SerialTaskB(), ParallelTaskF(), ParallelTaskG())
+        val taskStartedCompletable = CompletableDeferred<Unit>()
+
+        val initializerList = listOf(
+            SerialTaskA(),
+            ControllableLongRunningTask(taskStartedCompletable), // 使用可控任务
+            SerialTaskB()
+        )
+
         val startup = Startup(
             context = mockContext,
             initializers = initializerList,
-            onCompletion = { fail("Should have been cancelled") },
-            onError = {
-                // 当 onError 被调用时，完成 CompletableDeferred
-                errorCompletable.complete(it)
-            }
+            onCompletion = { fail("任务应被取消，不应执行 onCompletion") },
+            onError = { exceptions -> errorCompletable.complete(exceptions) }
         )
-        startup.start()
-        // 稍微延迟一下，确保 start() 里的协程有机会启动
-        delay(10)
-        startup.cancel()
 
-        // 等待 onError 回调，设置超时
-        val caughtExceptions = withContext(Dispatchers.Default) {
-            withTimeout(2000) {
+        // 1. 在一个独立的后台协程中启动整个流程，以模拟真实环境
+        val testJob = launch {
+            // 启动 Startup 流程
+            val startupJob = launch { startup.start() }
+
+            // 2. 等待，直到 ControllableLongRunningTask 明确通知我们它已开始
+            //    这确保了我们不会过早地取消
+            withTimeout(2000) { // 给它一个合理的时间开始
+                taskStartedCompletable.await()
+            }
+
+            // 3. 现在我们确定任务正在运行，可以安全地取消它
+            startup.cancel()
+
+            // 4. 等待 onError 回调被触发
+            val caughtExceptions = withTimeout(2000) {
                 errorCompletable.await()
             }
+
+            // 5. 断言结果
+            assertNotNull(caughtExceptions)
+            assertTrue(caughtExceptions.any { it is CancellationException })
+
+            // 6. 等待 startup 的协程完全结束，以确保所有清理工作完成
+            startupJob.join()
         }
 
-        // 现在进行正确的断言
-        assertNotNull(caughtExceptions)
-        // 验证捕获的异常中至少有一个是 CancellationException
-        assertTrue(caughtExceptions.any { it is CancellationException })
-        // 任务可能执行了部分，但绝不会全部执行完
-        assertTrue(logList.size < initializerList.size)
+        // 等待整个测试流程完成
+        testJob.join()
+
+        // 在测试协程的末尾进行最终的日志断言
+        // LongRunningTask 之前的任务应该已完成
+        assertTrue(logList.any { it.startsWith("SerialTaskA") })
+        // LongRunningTask 已经开始
+        assertTrue(logList.any { it.startsWith("LongRunningTask_Start") })
+        // LongRunningTask 之后的任务不应执行
+        assertFalse(logList.any { it.startsWith("SerialTaskB") })
+        // LongRunningTask 不应该完成
+        assertFalse(logList.any { it.startsWith("LongRunningTask_Finish") })
     }
 }
 
@@ -252,9 +285,26 @@ class MainDispatcherRule(
 ) : org.junit.rules.TestWatcher() {
     override fun starting(description: org.junit.runner.Description) {
         Dispatchers.setMain(testDispatcher)
+        // 增加一个标识，便于在日志中区分
+        Thread.currentThread().name = "TestMain"
     }
 
     override fun finished(description: org.junit.runner.Description) {
         Dispatchers.resetMain()
+        Thread.currentThread().name = "main" // 恢复
     }
 }
+
+// 一个可以通知外部它已开始的长时间运行任务
+class ControllableLongRunningTask(
+    private val started: CompletableDeferred<Unit>? = null
+) : Initializer<Unit>() {
+    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(SerialTaskA::class)
+    override suspend fun init(context: Context, provider: DependenciesProvider) {
+        log("LongRunningTask_Start")
+        started?.complete(Unit) // 通知测试，任务已开始
+        delay(1000)
+        log("LongRunningTask_Finish")
+    }
+}
+

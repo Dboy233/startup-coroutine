@@ -2,7 +2,6 @@ package com.dboy.startup_coroutine
 
 import android.content.Context
 import kotlin.reflect.KClass
-
 /**
  * The core abstraction for an initialization task.
  *
@@ -21,12 +20,17 @@ import kotlin.reflect.KClass
  *
  * @see Startup The actual manager and executor of the tasks.
  * @sample
- * // A parallel task that returns a String result
- * // 一个返回字符串结果的并行任务
- * class MyTask : Initializer<String>() {
+ * // A parallel task that returns a String result and performs I/O
+ * // 一个返回字符串结果并执行I/O操作的并行任务
+ * class MyTask :Initializer<String>() {
  *     override suspend fun init(context: Context, provider: DependenciesProvider): String {
- *         kotlinx.coroutines.delay(1000) // Simulate a long-running operation
- *         return "Task Result"
+ *         // Perform long-running I/O operation on a background thread
+ *         val data = withContext(Dispatchers.IO) {
+ *             // Simulate file reading or network call
+ *             delay(1000)
+ *             "Task Result"
+ *         }
+ *         return data
  *     }
  *
  *     override fun initMode(): InitMode = InitMode.PARALLEL
@@ -34,25 +38,29 @@ import kotlin.reflect.KClass
  */
 abstract class Initializer<T> {
 
+
     /**
      * Executes the actual initialization work.
      *
-     * This method will be invoked on a CoroutineDispatcher specified by the framework:
-     * - For [InitMode.SERIAL] tasks, it runs on the **main thread**.
-     * - For [InitMode.PARALLEL] tasks, it runs on a **background thread**.
+     * This method is a suspend function and is **always dispatched on the main thread** by default,
+     * regardless of the [InitMode]. This design choice ensures that UI-related initializations
+     * are safe to perform directly.
      *
-     * This is a suspend function, allowing you to perform long-running operations. You can also
-     * use `withContext` to switch to other dispatchers if needed.
+     * **Important**: For any potentially blocking or long-running operations (e.g., file I/O,
+     * network requests, heavy computation), you **must** switch to a background dispatcher
+     * using `withContext(Dispatchers.IO)` or `withContext(Dispatchers.Default)` to avoid
+     * blocking the main thread and causing ANRs.
      *
      * --- (中文说明) ---
      *
      * 执行实际的初始化工作。
      *
-     * 此方法将在框架指定的协程调度器上被调用：
-     * - 对于 [InitMode.SERIAL] 任务，它运行在 **主线程** 上。
-     * - 对于 [InitMode.PARALLEL] 任务，它运行在 **后台线程** 上。
+     * 这是一个挂起函数，并且无论 [InitMode] 是什么，它 **默认总是在主线程上被调度执行**。
+     * 这种设计确保了与UI相关的初始化操作可以直接安全地执行。
      *
-     * 这是一个挂起函数，你可以在内部执行耗时操作。如果需要，也可以使用 `withContext` 切换到其他调度器。
+     * **重要提示**: 对于任何潜在的阻塞或长时间运行的操作（例如：文件I/O、网络请求、复杂计算），
+     * 你 **必须** 使用 `withContext(Dispatchers.IO)` 或 `withContext(Dispatchers.Default)`
+     * 将其切换到后台调度器上执行，以避免阻塞主线程并导致ANR。
      *
      * @param context The application's global context, whose lifecycle is tied to the app process.
      * (Application全局上下文，生命周期与应用进程一致。)
@@ -86,15 +94,20 @@ abstract class Initializer<T> {
 
 
     /**
-     * Defines the execution mode for this task.
+     * Defines the execution mode for this task, which primarily controls execution order.
      *
-     * - [InitMode.SERIAL]: The task will be executed sequentially on the main thread. Suitable for UI-related or strictly ordered tasks.
-     * - [InitMode.PARALLEL]: The task will be executed concurrently in a background thread pool. Ideal for long-running operations.
+     * - [InitMode.SERIAL]: The task will be executed sequentially, respecting its dependencies.
+     * - [InitMode.PARALLEL]: The task can be executed concurrently with other parallel tasks once its dependencies are met.
+     *
+     * Note that the execution mode **does not** determine the execution thread. All tasks
+     * start on the main thread.
      *
      * --- (中文说明) ---
-     * 定义此任务的执行模式。
-     * - [InitMode.SERIAL] : 任务将在主线程上按顺序执行。适用于需要访问UI或有严格先后顺序的任务。
-     * - [InitMode.PARALLEL] : 任务将在后台线程池中与其他并行任务一起执行。适用于不依赖主线程的耗时操作。
+     * 定义此任务的执行模式，它主要控制执行顺序。
+     * - [InitMode.SERIAL] : 任务将按其依赖关系顺序执行。
+     * - [InitMode.PARALLEL] : 任务在依赖满足后，可以与其他并行任务并发执行。
+     *
+     * 请注意，执行模式 **不决定** 执行线程。所有任务都从主线程开始。
      *
      * @return The [InitMode]. Defaults to [InitMode.SERIAL].
      * ([InitMode]。默认为 [InitMode.SERIAL]。)

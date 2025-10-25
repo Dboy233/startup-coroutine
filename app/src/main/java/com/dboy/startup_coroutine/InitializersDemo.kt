@@ -4,7 +4,9 @@ package com.dboy.startup_coroutine
 import android.content.Context
 import android.os.Looper
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.reflect.KClass
 
 /**
@@ -56,10 +58,12 @@ class LogInitializer : Initializer<Unit>() {
     override fun initMode(): InitMode = InitMode.PARALLEL
 
     override suspend fun init(context: Context, provider: DependenciesProvider) {
-        Log.d("AppStartup", "[LogInitializer] 开始初始化日志服务...")
-        delay(100) // 模拟I/O操作
-        // 这里可以执行类似 Timber.plant(Timber.DebugTree()) 的操作
-        Log.d("AppStartup", "[LogInitializer] ✅ 日志服务初始化完成。")
+        withContext(Dispatchers.IO){
+            Log.d("AppStartup", "[LogInitializer] 开始初始化日志服务...")
+            delay(300) // 模拟I/O操作
+            // 这里可以执行类似 Timber.plant(Timber.DebugTree()) 的操作
+            Log.d("AppStartup", "[LogInitializer] ✅ 日志服务初始化完成。")
+        }
     }
 }
 

@@ -19,47 +19,59 @@ interface DependenciesProvider {
     /**
      * Retrieves the result of a completed dependency.
      *
-     * This method is an "unsafe" operation because it will throw an exception if the dependency has not
-     * yet completed, has failed, or is not declared in the `initializers` list.
+     * This method assumes the dependency has successfully completed and returned a non-null result.
+     * It will throw an `IllegalStateException` if the result is not available, which can happen if:
+     * - The dependency has not been executed yet.
+     * - The dependency failed during execution.
+     * - The dependency's result is `null` or `Unit`.
+     * - The dependency was not declared in the `initializers` list for the `Startup` instance.
      *
-     * **It is highly recommended to use [resultOrNull] for safer access.**
+     * **For safer, non-crashing access, it is strongly recommended to use [resultOrNull].**
      *
      * --- (中文说明) ---
      *
      * 获取一个已完成依赖项的初始化结果。
      *
-     * 这是一个“不安全”的操作，因为如果依赖项尚未完成、执行失败、或未在启动任务列表中声明，
-     * 此方法将抛出异常。
+     * 此方法假定依赖项已经成功完成并返回了一个非空结果。如果结果不可用，它将抛出 `IllegalStateException` 异常。
+     * 结果不可用的情况包括：
+     * - 依赖项尚未执行。
+     * - 依赖项在执行过程中失败。
+     * - 依赖项的返回结果是 `null` 或 `Unit`。
+     * - 依赖项未在 `Startup` 实例的 `initializers` 列表中声明。
      *
-     * **强烈建议优先使用 [resultOrNull] 以进行更安全的结果访问。**
+     * **为了更安全、避免崩溃的访问方式，强烈建议使用 [resultOrNull] 方法。**
      *
      * @param T The expected type of the result. (期望返回的结果类型。)
      * @param dependency The [KClass] of the target dependency `Initializer`. (目标依赖项 `Initializer` 的 `KClass`。)
      * @return The non-null result of the dependency. (依赖项的初始化结果，非空。)
-     * @throws IllegalStateException if the dependency is not yet initialized, has failed,
-     * or was never added to the startup sequence. (如果依赖项尚未初始化、执行失败或不存在于启动序列中。)
+     * @throws IllegalStateException if the result is not available for any of the reasons listed above. (如果因上述任何原因导致结果不可用。)
      */
     fun <T> result(dependency: KClass<out Initializer<*>>): T
 
     /**
-     * Safely retrieves the result of a completed dependency, or `null` if it's unavailable.
+     * Safely retrieves the result of a completed dependency, returning `null` if it's unavailable.
      *
-     * This is the **recommended** method for accessing dependency results, as it avoids
-     * unexpected exceptions.
+     * This is the **recommended** method for accessing dependency results. It provides a safe way to
+     * handle cases where a result might not be present, without causing a crash. It returns `null` if:
+     * - The dependency has not been executed yet.
+     * - The dependency failed during execution.
+     * - The dependency returned a `null` or `Unit` value.
+     * - The dependency was not found in the startup sequence.
      *
      * --- (中文说明) ---
      *
      * 安全地获取一个已完成依赖项的初始化结果，如果结果不可用则返回 `null`。
      *
-     * 这是**推荐**的依赖结果访问方法，因为它可以避免意外的异常。在以下几种情况中，它会返回`null`:
-     * - 依赖项尚未执行完毕。
-     * - 依赖项在执行过程中发生了错误。
+     * 这是**推荐**的依赖结果访问方法。它提供了一种无需使程序崩溃即可安全处理结果不存在情况的方式。
+     * 在以下几种情况中，它会返回`null`:
+     * - 依赖项尚未执行。
+     * - 依赖项在执行过程中失败。
+     * - 依赖项的返回值为 `null` 或 `Unit`。
      * - 依赖项未在启动序列中找到。
-     * - 依赖项执行成功，但其返回值为 `null` 或 `Unit`。
      *
      * @param T The expected type of the result. (期望返回的结果类型。)
      * @param dependency The [KClass] of the target dependency `Initializer`. (目标依赖项 `Initializer` 的 `KClass`。)
-     * @return The result of the dependency, or `null` if it is not available. (依赖项的初始化结果，如果不可用则为 `null`。)
+     * @return The result of the dependency, or `null` if it is not available for any reason. (依赖项的初始化结果，如果因任何原因不可用则为 `null`。)
      */
     fun <T> resultOrNull(dependency: KClass<out Initializer<*>>): T?
 }

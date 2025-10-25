@@ -1,12 +1,12 @@
 package com.dboy.startup_coroutine
 
 import android.content.Context
+import android.os.AsyncTask.execute
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
@@ -14,20 +14,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.KClass
 
 /**
  * 一个基于协程的、支持依赖关系、并行化和高级错误处理的异步启动框架。
- * todo
- * 该框架通过拓扑排序来管理复杂的初始化依赖关系，并允许任务在主线程（串行）
- * 或后台线程（并行）上执行。它能确保所有任务按正确顺序执行，并在所有任务
- * 完成或发生错误后提供统一的回调。
+ *
+ * 该框架通过拓扑排序来管理复杂的初始化依赖关系。所有任务默认都在 **主线程** 上启动，
+ * 从而可以直接执行UI相关的初始化。开发者可以根据需要在任务内部使用 `withContext(Dispatchers.IO)`
+ * 或 `withContext(Dispatchers.Default)` 来执行耗时操作，而不会阻塞启动流程。
  *
  * ### 主要特性
  * - **依赖管理**: 自动处理任务间的依赖关系。
+ * - **主线程优先**: 所有任务默认在主线程启动，方便UI操作。
+ * - **灵活的线程模型**: 开发者可以轻松地在任务内部切换到后台线程。
  * - **并行执行**: 无依赖关系的任务可以并行执行以缩短启动时间。
  * - **异常隔离**: 使用 `supervisorScope` 确保单个并行任务的失败不会影响其他任务。
  * - **统一错误报告**: 通过 `onError` 回调聚合所有发生的异常。
@@ -36,7 +37,7 @@ import kotlin.reflect.KClass
  * @param context Android Application Context。
  * @param initializers 所有需要执行的 [Initializer] 任务列表。
  * @param onCompletion 所有任务成功执行后的回调，在主线程上调用。
- * @param onError 任何任务执行失败后的回调，在一个后台线程上调用。
+ * @param onError 任何任务执行失败后的回调，聚合所有异常后在主线程上调用。
  *
  * @sample
  * // class AnalyticsInitializer : Initializer<AnalyticsSDK>() { ... }
@@ -54,7 +55,7 @@ open class Startup(
     private val context: Context,
     private val initializers: List<Initializer<*>>,
     private val onCompletion: () -> Unit,
-    private val onError: ((List<Throwable>) -> Unit)? = null // 新增：用于报告所有异常的统一回调
+    private val onError: ((List<Throwable>) -> Unit)? = null
 ) : DependenciesProvider {
 
     // Stores the results of each initializer.
@@ -63,12 +64,7 @@ open class Startup(
 
     // A CoroutineScope to manage the lifecycle of all initialization tasks.
     // CoroutineScope 用于管理所有初始化任务的生命周期。
-    //fixme
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-
-    // A single-threaded coroutine context to ensure serial execution.
-    // 使用单一线程的协程上下文来确保串行执行。
-    private val serialContext = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // Atomic flag to prevent multiple invocations of the start() method.
     // 原子状态锁，防止 start() 方法被多次调用。
@@ -107,20 +103,18 @@ open class Startup(
                 // 2. Execute all serial tasks. A failure here will throw an exception and terminate the process immediately.
                 // 2. 执行所有串行任务。如果串行任务失败，将立即抛出异常并终止整个启动流程。
                 for (initializer in serialInitializers) {
-                    withContext(serialContext) {
+                    withContext(Dispatchers.Main){
                         execute(initializer)
                     }
                 }
 
-                // 3. Execute all parallel tasks with dependency awareness.
-                //    Uses supervisorScope to isolate failures, so one failing task doesn't cancel others.
                 // 3. 按依赖关系执行所有并行任务。
                 //    使用 supervisorScope 隔离并行任务，一个任务的失败不会取消其他任务。
                 supervisorScope {
                     val parallelJobs = mutableMapOf<KClass<out Initializer<*>>, Deferred<*>>()
 
                     for (initializer in parallelInitializers) {
-                        val job = async(Dispatchers.Default) {
+                        val job = async(Dispatchers.Main) {
                             // Before starting the current task, wait for its dependencies to complete.
                             // 在启动当前任务前，先等待其所有依赖项完成。
                             val dependencyJobs = initializer.dependencies()
@@ -151,9 +145,6 @@ open class Startup(
                 // 收集所有被抑制的异常（来自 awaitAll 的多个失败任务）。
                 e.suppressed.forEach { exceptions.add(it) }
             } finally {
-                // Ensure the single-threaded context is closed.
-                // 确保单线程上下文被关闭。
-                serialContext.close()
 
                 // If the scope was cancelled, ensure a CancellationException is reported.
                 // 如果 scope 被主动取消，确保一个 CancellationException 被报告。
@@ -166,11 +157,13 @@ open class Startup(
                 // 检查是否发生了异常。
                 if (exceptions.isNotEmpty()) {
                     // 如果有错误回调，则调用它
-                    onError?.invoke(exceptions)
+                    withContext(Dispatchers.Main){
+                        onError?.invoke(exceptions)
+                    }
                 } else {
-                    // If all tasks succeeded, invoke the completion callback on the main thread.
-                    // 4. 所有任务成功完成后，在主线程上调用完成回调。
-                    withContext(Dispatchers.Main) {
+                    // If all tasks succeeded, invoke the completion callback.
+                    // 4. 所有任务成功完成后，调用完成回调。
+                    withContext(Dispatchers.Main){
                         onCompletion.invoke()
                     }
                 }
@@ -261,15 +254,9 @@ open class Startup(
     }
 
     /**
-     * Cancels all ongoing initialization tasks.
-     * --- (中文说明) ---
      * 取消所有正在进行的初始化任务。
      */
     fun cancel() {
-        if (started.get()) {
-            // 如果已经启动，关闭 serialContext 并取消整个 scope
-            serialContext.close() // 确保即使协程被取消，线程池也能关闭
-        }
         scope.cancel("Startup cancelled by caller.")
     }
 
@@ -280,8 +267,7 @@ open class Startup(
      * 获取一个已完成依赖项的结果。如果结果不可用，则抛出异常。
      */
     override fun <T> result(dependency: KClass<out Initializer<*>>): T {
-        // 由于拓扑排序和执行流程保证了依赖项已经执行完毕，这里可以安全地获取结果。
-        return resultOrNull(dependency)
+        return results[dependency] as? T
             ?: throw IllegalStateException("Result for ${dependency.simpleName} not found. Is it declared as a dependency and does it return a non-Unit value?")
     }
 
@@ -292,9 +278,6 @@ open class Startup(
      */
     @Suppress("UNCHECKED_CAST")
     override fun <T> resultOrNull(dependency: KClass<out Initializer<*>>): T? {
-        // This cast is logically safe because the `execute` method ensures that the type
-        // of the stored result matches the generic type of its initializer class key.
-        // 这里的类型转换在逻辑上是安全的，因为 `execute()` 方法保证了存入的 key 和 value 的泛型类型是匹配的。
         return results[dependency] as? T
     }
 }

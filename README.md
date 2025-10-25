@@ -36,7 +36,8 @@
 ## ✨ 核心特性
 
 *   **🔗 依赖管理**: 自动解析并按拓扑顺序执行任务，精确处理任务间的依赖关系。
-*   **⚡ 并行执行**: 无依赖关系的任务将自动在后台线程池中并行执行，充分利用多核 CPU 资源，加速启动过程。
+*   **⚡ 主线程安全**: 所有任务默认在 **主线程** 上执行，确保UI相关初始化的绝对安全。
+*   **🚀 极致性能**: 框架自身的管理调度工作在 **后台线程** 完成，对主线程几乎零干扰，最大化提升应用启动性能。
 *   **🛡️ 异常隔离**: 采用 `supervisorScope` 隔离并行任务，确保单个任务的失败不会导致整个启动流程崩溃。
 *   **📊 统一错误报告**: 通过 `onError` 回调聚合所有发生的异常，方便统一记录和处理。
 *   **🤚 可取消**: 支持随时安全地取消整个启动流程，并正确处理相关的资源释放。
@@ -48,13 +49,13 @@
 
 每个初始化单元都应继承 `Initializer<T>` 抽象类，并实现其核心方法。
 
-*   **`init(context, provider)`**: 包含实际的初始化逻辑。这是一个挂起函数，可执行耗时操作。
+*   **`init(context, provider)`**: 包含实际的初始化逻辑。这是一个挂起函数，默认在 **主线程** 执行。
 *   **`dependencies()`**: (可选) 声明当前任务所依赖的其他 `Initializer` 任务。
-*   **`initMode()`**: (可选) 定义执行模式，默认为 `InitMode.SERIAL` (主线程串行)。
+*   **`initMode()`**: (可选) 定义执行模式（串行或并行），默认为 `InitMode.SERIAL`。
 
 **示例：定义两个任务**
 
-一个用于初始化分析服务的并行任务（`AnalyticsInitializer`），以及另一个依赖于它的广告 SDK 初始化任务（`AdsInitializer`）。
+一个用于初始化分析服务的任务（`AnalyticsInitializer`），它包含耗时操作；以及另一个依赖于它的广告SDK初始化任务（`AdsInitializer`）。
 
 ```kotlin
 
@@ -63,13 +64,16 @@
 class AnalyticsInitializer : Initializer<AnalyticsSDK>() {
 
     override suspend fun init(context: Context, provider: DependenciesProvider): AnalyticsSDK {
-        // 模拟一个耗时的 I/O 操作
-        delay(1000)
-        println("分析服务 SDK 已在线程初始化: \${Thread.currentThread().name}")
-        return AnalyticsSDK("Analytics-SDK-Instance")
+        // 重要：由于 init() 在主线程执行，任何耗时操作都必须切换到后台线程。
+        val result = withContext(Dispatchers.IO) {
+            delay(1000) // 模拟一个耗时的 I/O 操作
+            println("分析服务 SDK 已在后台线程初始化: ${Thread.currentThread().name}")
+            AnalyticsSDK("Analytics-SDK-Instance")
+        }
+        return result
     }
 
-    // 在后台线程池中运行此任务
+    // 将此任务设置为并行模式，以便它可以与其他任务并发执行
     override fun initMode(): InitMode = InitMode.PARALLEL
 
 }
@@ -81,7 +85,9 @@ class AdsInitializer : Initializer<Unit>() {
     override suspend fun init(context: Context, provider: DependenciesProvider) {
         // 从依赖提供者处获取依赖项的结果
         val analyticsSDK = provider.result<AnalyticsSDK>(AnalyticsInitializer::class)
-        println("广告 SDK 正在使用: ${analyticsSDK.name}，位于线程: ${Thread.currentThread().name}")
+
+        // 此操作在主线程执行，可以直接进行UI相关的初始化
+        println("广告 SDK 正在使用: ${analyticsSDK.name}，位于主线程: ${Thread.currentThread().name}")
         // 在此处进行广告 SDK 的初始化...
     }
 
@@ -90,7 +96,7 @@ class AdsInitializer : Initializer<Unit>() {
         return listOf(AnalyticsInitializer::class)
     }
 
-    // 在主线程上运行此任务 (默认行为)
+    // 默认行为
     override fun initMode(): InitMode = InitMode.SERIAL
 
 }
@@ -118,7 +124,7 @@ class MyApplication : Application() {
                 println("🎉 所有启动任务已成功完成！")
             },
             onError = { errors ->
-                // 此回调在后台线程上调用
+                // 此回调也在主线程上调用，可以安全地显示UI提示
                 println("🔥 启动流程失败，共出现 ${errors.size} 个错误:")
                 errors.forEach { error ->
                     println("   - ${error.message}")
@@ -126,12 +132,13 @@ class MyApplication : Application() {
             }
         )
 
-        // 启动初始化流程
+        // 启动初始化流程。此调用是非阻塞的，会立即返回。
         startup.start()
     }
 
 }
 ```
+
 
 ## 🧩 核心 API 解析
 
@@ -139,22 +146,22 @@ class MyApplication : Application() {
 
 所有初始化任务的基类。
 
-*   `init(context: Context, provider: DependenciesProvider): T`: 您的初始化逻辑所在地。这是一个挂起函数，可以安全地执行长时间运行的操作。
+*   `init(context: Context, provider: DependenciesProvider): T`: 您的初始化逻辑所在地。这是一个默认在 **主线程** 执行的挂起函数。**任何耗时操作都必须使用 `withContext` 切换到后台线程**。
 *   `dependencies(): List<KClass<out Initializer<*>>>`: 指定该任务所依赖的其他任务。
-*   `initMode(): InitMode`: 决定任务是在主线程 (`SERIAL`) 还是后台线程 (`PARALLEL`) 执行。
+*   `initMode(): InitMode`: 决定任务的执行顺序关系（串行或并行），**不决定执行线程**。
 
 ### `InitMode`
 
-一个定义 `Initializer` 执行模式的枚举。
+一个定义 `Initializer` 执行顺序模式的枚举。
 
-*   `SERIAL`: 任务将在 **主线程** 上串行执行。适用于与 UI 相关或需要严格顺序的轻量级任务。
-*   `PARALLEL`: 任务将在 **后台线程池** (`Dispatchers.Default`) 中并行执行。是 I/O 或 CPU 密集型工作的理想选择。
+*   `SERIAL`: 任务将按其依赖关系，在 **主线程** 上串行执行。
+*   `PARALLEL`: 任务在依赖满足后，将有资格与其他并行任务并发执行。并发是通过协程的非阻塞挂起机制实现的，任务启动仍然在 **主线程**。
 
 ### `Startup`
 
 管理和执行初始化流程的核心类。
 
-*   `start()`: 启动整个初始化流程。此方法是线程安全的，且只能成功调用一次。
+*   `start()`: 启动整个初始化流程。此方法是线程安全的、非阻塞的，且只能成功调用一次。
 *   `cancel()`: 取消所有正在进行的初始化任务。
 
 ### `DependenciesProvider`
@@ -168,13 +175,32 @@ class MyApplication : Application() {
 
 ### 异常处理机制
 
-框架能够聚合所有来自并行任务的异常。如果一个串行任务失败，整个启动流程将立即终止并报告异常。如果一个或多个并行任务失败，框架会等待所有其他并行任务完成后，通过 `onError` 回调一次性报告所有收集到的异常。
+框架能够聚合所有来自并行任务的异常。如果一个串行任务失败，整个启动流程将立即终止并报告异常。如果一个或多个并行任务失败，框架会等待所有其他可独立运行的任务完成后，通过 `onError` 回调一次性报告所有收集到的异常。
 
 ### 循环依赖检测
 
 框架在启动时会自动进行拓扑排序，如果检测到初始化任务之间存在循环依赖，它会抛出 `IllegalStateException`，从而防止在运行时出现死锁。
 
-此外，框架还包含一个重要的验证规则：**串行任务不能依赖于并行任务**。这是因为串行任务按序在主线程执行，而并行任务的完成时机不确定，这种依赖关系会破坏主线程的执行顺序并可能导致难以预料的行为。
+此外，框架还包含一个重要的验证规则：**串行任务不能依赖于并行任务**。这是因为串行任务需要按严格顺序执行，而并行任务的完成时机不确定，这种依赖关系会破坏执行顺序的确定性并可能导致难以预料的行为。
+
+
+## 🆚 与 Jetpack App Startup 对比
+
+Jetpack App Startup 是一个优秀的库，它通过 `ContentProvider` 实现了自动化的无感初始化。那么，在什么情况下你应该选择 `startup-coroutine` 呢？
+
+| 特性 | Jetpack App Startup | startup-coroutine | 优势说明 |
+| :--- | :--- | :--- | :--- |
+| **调用方式** | 自动化、无侵入 | 手动调用 (`startup.start()`) | **startup-coroutine** 提供了更灵活的控制，你可以在任何时机（如同意隐私协议后）启动任务。 |
+| **线程模型** | 在后台线程执行 | **框架后台调度，任务主线程执行** | **startup-coroutine** 的模型对主线程干扰更小，且默认UI安全，开发者只需关注耗时任务的切换。 |
+| **异常处理** | 崩溃（默认） | 隔离并行任务，统一回调 | **startup-coroutine** 通过 `supervisorScope` 提供了更强大的异常隔离能力，单个任务失败不影响其他任务。 |
+| **结果传递** | 支持，但较简单 | `DependenciesProvider` | **startup-coroutine** 提供了类型安全、更直观的结果传递方式。 |
+| **取消支持** | 否 | **是 (`startup.cancel()`)** | **startup-coroutine** 支持在运行时取消整个启动流程，适用于动态模块场景。 |
+
+**总结：**
+
+*   如果你需要一个 **简单、全自动、一次性** 的启动方案，**Jetpack App Startup** 是一个不错的选择。
+*   如果你需要对启动流程进行 **精细化控制、拥有高级并发管理、强大的异常隔离**，或者需要在应用生命周期的 **不同阶段触发初始化**，那么 **startup-coroutine** 将是更强大、更灵活的解决方案。
+
 
 ## 🤝 贡献指南
 
