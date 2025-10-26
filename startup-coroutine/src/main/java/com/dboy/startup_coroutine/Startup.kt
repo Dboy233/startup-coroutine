@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -20,6 +21,16 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.KClass
+import kotlin.system.measureTimeMillis
+
+
+/**
+ * 用于保存单个初始值设定项任务的性能指标的数据类。
+ */
+private data class TaskMetrics(
+    val name: String,
+    val duration: Long, val threadName: String
+)
 
 /**
  * 一个基于协程的、支持依赖关系、并行化和高级错误处理的异步启动框架。
@@ -38,6 +49,7 @@ import kotlin.reflect.KClass
  * - **可取消**: 可以随时安全地取消整个启动流程。
  *
  * @param context Android Application Context。
+ * @param isDebug 在debug模式下会打印所有任务拓扑关系图和任务耗时清单.
  * @param dispatchers 协程调度器配置，用于定义启动、执行和回调的线程模型。
  *                    默认为 `StartupDispatchers.createDefault()`。
  * @param initializers 所有需要执行的 [Initializer] 任务列表。
@@ -58,7 +70,8 @@ import kotlin.reflect.KClass
  */
 open class Startup(
     private val context: Context,
-    private val dispatchers: StartupDispatchers = StartupDispatchers.createDefault(),
+    private val isDebug: Boolean = false,
+    private val dispatchers: StartupDispatchers = DefaultDispatchers,
     private val initializers: List<Initializer<*>>,
     private val onCompletion: () -> Unit,
     private val onError: ((List<StartupException>) -> Unit)? = null
@@ -75,6 +88,9 @@ open class Startup(
     // Atomic flag to prevent multiple invocations of the start() method.
     // 原子状态锁，防止 start() 方法被多次调用。
     private val started = AtomicBoolean(false)
+
+    // [新增] 用于存储所有任务性能指标的列表
+    private val taskMetrics = mutableListOf<TaskMetrics>()
 
     /**
      * Starts the entire initialization process.
@@ -94,6 +110,9 @@ open class Startup(
             // 如果已经启动，可以选择静默返回或记录一个警告。
             return
         }
+
+        // 记录总启动流程的开始时间
+        val totalStartTime = System.currentTimeMillis()
 
         scope.launch {
             val exceptions = mutableListOf<StartupException>()
@@ -187,12 +206,23 @@ open class Startup(
                     exceptions.add(StartupException(Startup::class, e))
                 }
             } finally {
+                if (isDebug) {
+                    // 计算总耗时
+                    val totalDuration = System.currentTimeMillis() - totalStartTime
+                    // 调用新的打印方法来汇总并打印性能报告
+                    printPerformanceSummary(totalDuration, exceptions.isNotEmpty())
+                }
 
                 // If the scope was cancelled, ensure a CancellationException is reported.
                 // 如果 scope 被主动取消，确保一个 CancellationException 被报告。
                 if (scope.coroutineContext[Job]?.isCancelled == true && exceptions.none { it.exception is CancellationException }) {
                     // 如果是被取消的，并且异常列表里还没有 CancellationException，就手动添加一个
-                    exceptions.add(StartupException(Startup::class, CancellationException("Startup was cancelled.")))
+                    exceptions.add(
+                        StartupException(
+                            Startup::class,
+                            CancellationException("Startup was cancelled.")
+                        )
+                    )
                 }
 
                 // Check if any exceptions occurred.
@@ -231,9 +261,20 @@ open class Startup(
      * 执行单个初始化任务并存储其结果（如果结果不是 Unit）。
      */
     private suspend fun execute(initializer: Initializer<*>) {
-        val result = initializer.init(context, this)
-        if (result !is Unit && result != null) {
-            results[initializer::class] = result
+        val duration = measureTimeMillis {
+            val result = initializer.init(context, this)
+            if (result !is Unit && result != null) {
+                results[initializer::class] = result
+            }
+        }
+        if (isDebug) {
+            taskMetrics.add(
+                TaskMetrics(
+                    name = initializer::class.simpleName ?: "UnknownInitializer",
+                    duration = duration,
+                    threadName = Thread.currentThread().name
+                )
+            )
         }
     }
 
@@ -306,7 +347,9 @@ open class Startup(
 
         // --- Stage 4: Print Dependency Graph ---
         // --- 阶段四：打印依赖关系图 ---
-        printDependenciesGraph(sortedList, initializerMap)
+        if (isDebug) {
+            printDependenciesGraph(sortedList, initializerMap)
+        }
 
         return sortedList
     }
@@ -373,4 +416,51 @@ open class Startup(
     override fun <T> resultOrNull(dependency: KClass<out Initializer<*>>): T? {
         return results[dependency] as? T
     }
+
+
+    /**
+     * 打印整个启动流程的性能总结报告。
+     * @param totalDuration 整个流程的总耗时（从 start() 调用到 finally 块）。
+     * @param hasErrors 启动流程是否以失败告终。
+     */
+    private fun printPerformanceSummary(totalDuration: Long, hasErrors: Boolean) {
+        val logContent = StringBuilder("\n--- Startup Coroutine Performance Summary ---\n\n")
+
+        // 1. 打印总览
+        val status = if (hasErrors) "FAILED" else "SUCCESS"
+        logContent.append(">> Total Time: ${totalDuration}ms  |  Status: $status\n")
+        val dispatchersMode = getDispatchersMode(dispatchers)
+        logContent.append(">> Dispatchers Mode: $dispatchersMode\n\n")
+        logContent.append(">> Individual Task Durations:\n")
+
+        // 2. 打印每个任务的耗时，并按耗时降序排列
+        if (taskMetrics.isNotEmpty()) {
+            // 对任务按耗时从高到低排序
+            val sortedMetrics = taskMetrics.sortedByDescending { it.duration }
+
+            val maxNameLength = sortedMetrics.maxOfOrNull { it.name.length } ?: 20
+            val maxDurationLength = sortedMetrics.maxOfOrNull { it.duration.toString().length } ?: 5
+            val cumulativeTime = sortedMetrics.sumOf { it.duration }
+
+            sortedMetrics.forEach { metric ->
+                val namePadded = metric.name.padEnd(maxNameLength, ' ')
+                val durationPadded = "${metric.duration}ms".padEnd(maxDurationLength + 2, ' ')
+                logContent.append("   - $namePadded  |  $durationPadded  |  Thread: ${metric.threadName}\n")
+            }
+            logContent.append(">> Task time is sum  : $cumulativeTime ms\n")
+        } else {
+            logContent.append("   No tasks were executed.\n")
+        }
+
+        logContent.append("\n-------------------------------------------\n")
+
+        // 使用一个醒目的日志级别打印报告
+        if (hasErrors) {
+            Log.e("StartupCoroutine", logContent.toString())
+        } else {
+            Log.i("StartupCoroutine", logContent.toString())
+        }
+    }
+
+
 }

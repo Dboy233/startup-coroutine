@@ -34,35 +34,35 @@ import kotlin.reflect.KClass
  *              | [P] NetworkInitializer    |                     | [P] LoggingInitializer    |  (阶段 2: 基础服务并行)
  *              +-------------+-------------+                     +------------+--------------+
  *                            |                                                |
- *       +--------------------+------------------+                              |
- *       |                                       |                              |
- * +-----+-------------+            +--------------------------------+          |
- * | [S] Config        |            | [P] UnnecessaryAnalytics (Fails) |          |
- * +-----+-------------+            +--------------------------------+          |
- *       |                                                                      |
- *       | (阶段 3: 关键串行路径)                                                |
- * +-----+-------------+                                                        |
- * | [S] UserAuth      |                                                        |
- * +-----+-------------+                                                        |
- *       |                                                                      |
- *       +-------------------------+-------------------------+                  |
- *       |                                                   |                  |
- * +-----+-------------+                       +-------------+-----+            |
- * | [P] Database      |                       | [S] UITheme     |            |  (阶段 4: 业务与UI并行)
- * +-------------------+                       +-------------+-----+            |
- *       |                                                   |                  |
- *       |                                                   |                  |
- *       +---------------------------------------------------+------------------+
+ *       +--------------------+------------------+                             |
+ *       |                                       |                             |
+ * +-----+-------------+            +--------------------------------+         |
+ * | [S] Config        |            | [P] UnnecessaryAnalytics (Fails) |       |
+ * +-----+-------------+            +--------------------------------+         |
+ *       |                                                                     |
+ *       | (阶段 3: 关键点,他们虽然都是并发任务,但是逻辑上是串行)                      |
+ * +-----+-------------+                                                       |
+ * | [S] UserAuth      |                                                       |
+ * +-----+-------------+                                                       |
+ *       |                                                                     |
+ *       +-------------------------+-------------------------+                 |
+ *       |                                                   |                 |
+ * +-----+-------------+                       +-------------+-----+           |
+ * | [P] Database      |                       | [S] UITheme       |           |  (阶段 4: 业务与UI并行)
+ * +-------------------+                       +-------------+-----+           |
+ *       |                                                   |                 |
+ *       |                                                   |                 |
+ *       +---------------------------------------------------+-----------------+
  *                                     |
  *                       +-------------+-----------------------------+
- *                       |  [P] ThirdPartySDK (等待所有上游任务完成) | (阶段 5: 收尾任务)
+ *                       |  [P] ThirdPartySDK (等待所有上游任务完成)    | (阶段 5: 收尾任务)
  *                       +-------------------------------------------+
  *
  *
  * 执行流程解读:
  * 1.  **启动**: `PrivacyConsent` 首先在主线程串行执行。
  * 2.  **并行分支**: `PrivacyConsent` 完成后，`Network` 和 `Logging` 任务会立即在后台并行开始。
- * 3.  **主干串行路径**: `Network` 完成后，关键的串行任务 `Config` 开始执行（其内部网络请求在IO线程），完成后 `UserAuth` 接着串行执行。
+ * 3.  **主干并发的串行路径**: `Network` 完成后，关键的串行任务 `Config` 开始执行（其内部网络请求在IO线程），完成后 `UserAuth` 接着执行。
  * 4.  **新的并行分支**: `UserAuth` 完成后，`Database` (并行) 和 `UITheme` (串行) 开始执行。`UITheme` 会等待 `UserAuth` 完成，但 `Database` 可以在后台独立进行。
  * 5.  **异常任务**: `UnnecessaryAnalytics` 在 `Network` 准备好后就开始并行尝试，它的失败不会阻塞任何其他任务。
  * 6.  **最终汇集**: `ThirdPartySDK` 是一个收尾任务，它会等待 `UITheme`, `Database`, `Logging` 全部完成后才开始执行。
@@ -159,11 +159,13 @@ class NetworkInitializer : Initializer<Unit>() {
  * **任务 3 (并行): 初始化日志框架 (例如 Timber)**
  *
  * 同样是一个独立的后台任务，可以在后台与其他任务并行执行。
+ *
+ * 它甚至都可以不依赖任何其他任务
  */
 class LoggingInitializer : Initializer<Unit>() {
     override fun initMode(): InitMode = InitMode.PARALLEL
     override fun dependencies(): List<KClass<out Initializer<*>>> =
-        listOf(PrivacyConsentInitializer::class)
+        listOf(PrivacyConsentInitializer::class)//纯属多余
 
     override suspend fun init(context: Context, provider: DependenciesProvider) {
         withContext(Dispatchers.Default) { // CPU密集型可以使用Default
@@ -175,10 +177,10 @@ class LoggingInitializer : Initializer<Unit>() {
 }
 
 /**
- * **任务 4 (串行): 获取远程配置**
+ * **任务 4 (并行): 获取远程配置**
  *
- * 这是一个关键的网络请求，后续很多业务都依赖它。
- * 【修改】为了严格遵守“串行任务不能依赖并行任务”的规则，我们将其定义为串行任务。
+ * 这是一个关键的网络请求，后续很多业务都依赖它。因为它依赖的任务是并行所以它必须是并行.
+ *
  * 它的网络请求逻辑依然在后台线程执行。
  */
 class ConfigInitializer : Initializer<AppConfig>() {
@@ -205,6 +207,9 @@ class ConfigInitializer : Initializer<AppConfig>() {
 
 // --- 阶段三：依赖核心服务的业务逻辑初始化 ---
 
+/**
+ *  **任务 5 (并行): 交验用户**
+ */
 class UserAuthInitializer : Initializer<UserProfile?>() {
     override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(ConfigInitializer::class)
 
@@ -244,14 +249,14 @@ class DatabaseInitializer : Initializer<Unit>() {
 
         withContext(Dispatchers.IO) {
             Log.d("AppStartup", "5.1 [Database] (${Thread.currentThread().name}) 准备为用户 '$dbName' 初始化数据库...")
-            delay(400) // 模拟数据库打开和迁移
+            delay(500) // 模拟数据库打开和迁移
             Log.d("AppStartup", "5.1 [Database] (${Thread.currentThread().name}) ✅ 数据库初始化完成。")
         }
     }
 }
 
 /**
- * 【新增】一个会失败的非必要任务，用于测试容错性。
+ * 一个会失败的非必要任务，用于测试容错性。
  * 它依赖网络，但没有其他任务依赖它。
  */
 class UnnecessaryAnalyticsInitializer : Initializer<Unit>() {
@@ -262,7 +267,7 @@ class UnnecessaryAnalyticsInitializer : Initializer<Unit>() {
     override suspend fun init(context: Context, provider: DependenciesProvider) {
         withContext(Dispatchers.IO) {
             Log.d("AppStartup", "X. [Analytics] (${Thread.currentThread().name}) 开始上报一个不重要的分析事件...")
-            delay(250) // 模拟网络请求
+            delay(300) // 模拟网络请求
             Log.e("AppStartup", "X. [Analytics] (${Thread.currentThread().name}) ❌ 上报失败！网络超时。")
             throw IOException("Analytics report failed")
         }
@@ -273,7 +278,7 @@ class UnnecessaryAnalyticsInitializer : Initializer<Unit>() {
 // --- 阶段四：UI 和高优先级第三方 SDK 初始化 ---
 
 /**
- * **任务 7 (串行): 初始化核心 UI 组件 (例如主题、字体)**
+ * **任务 7 (并行): 初始化核心 UI 组件 (例如主题、字体)**
  *
  * 这是一个必须在主线程执行的任务，用于在界面展示前设置好视觉元素。
  * 它依赖于用户认证（可能需要根据用户身份显示不同主题）。
@@ -287,10 +292,12 @@ class UIThemeInitializer : Initializer<Unit>() {
     }
 
     override suspend fun init(context: Context, provider: DependenciesProvider) {
-        assert(Looper.myLooper() == Looper.getMainLooper()) { "UI任务必须在${Thread.currentThread().name}！" }
-        Log.d("AppStartup", "5.2 [UITheme] (${Thread.currentThread().name}) 开始应用UI主题和字体...")
-        delay(50)
-        Log.d("AppStartup", "5.2 [UITheme] (${Thread.currentThread().name}) ✅ UI主题设置完毕。")
+        withContext(Dispatchers.Main){
+            assert(Looper.myLooper() == Looper.getMainLooper()) { "UI任务必须在${Thread.currentThread().name}！" }
+            Log.d("AppStartup", "5.2 [UITheme] (${Thread.currentThread().name}) 开始应用UI主题和字体...")
+            delay(300)
+            Log.d("AppStartup", "5.2 [UITheme] (${Thread.currentThread().name}) ✅ UI主题设置完毕。")
+        }
     }
 }
 
@@ -301,30 +308,32 @@ class UIThemeInitializer : Initializer<Unit>() {
  * 许多第三方 SDK 要求在主线程初始化，但我们可以将其包装在并行任务中，
  * 只要它等待所有前置任务完成即可。
  * 这个任务依赖多个前置任务（如用户、配置、UI），确保在所有条件具备后才执行。
- * 【修改】为了满足“串行不能依赖并行”的规则，将此任务改为并行。
  */
 class ThirdPartySDKInitializer : Initializer<Unit>() {
     override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(
-        UIThemeInitializer::class,     // 依赖串行任务
-        DatabaseInitializer::class,    // 依赖并行任务
-        LoggingInitializer::class      // 依赖另一个并行任务
+        UIThemeInitializer::class,
+        DatabaseInitializer::class,
+        LoggingInitializer::class
     )
 
     override fun initMode(): InitMode = InitMode.PARALLEL
 
     override suspend fun init(context: Context, provider: DependenciesProvider) {
-        val user = provider.resultOrNull<UserProfile>(UserAuthInitializer::class) // 间接依赖
-        assert(Looper.myLooper() == Looper.getMainLooper()) { "第三方SDK必须在主线程初始化！" }
+        withContext(Dispatchers.Main){
+            val user = provider.resultOrNull<UserProfile>(UserAuthInitializer::class) // 间接依赖
+            assert(Looper.myLooper() == Looper.getMainLooper()) { "第三方SDK必须在主线程初始化！" }
 
-        Log.d("AppStartup", "6. [3rdParty] (${Thread.currentThread().name}) 所有依赖已就绪，开始初始化分析和广告SDK...")
+            Log.d("AppStartup", "6. [3rdParty] (${Thread.currentThread().name}) 所有依赖已就绪，开始初始化分析和广告SDK...")
 
-        if (user?.isVip == true) {
-            Log.d("AppStartup", "6. [3rdParty] (${Thread.currentThread().name}) ✅ 用户是VIP，跳过广告SDK，只初始化分析SDK。")
-            delay(100) // 模拟分析SDK初始化
-        } else {
-            Log.d("AppStartup", "6. [3rdParty] (${Thread.currentThread().name}) ✅ 初始化分析和广告SDK。")
-            delay(200) // 模拟两个SDK的初始化
+            if (user?.isVip == true) {
+                Log.d("AppStartup", "6. [3rdParty] (${Thread.currentThread().name}) ✅ 用户是VIP，跳过广告SDK，只初始化分析SDK。")
+                delay(300) // 模拟分析SDK初始化
+            } else {
+                Log.d("AppStartup", "6. [3rdParty] (${Thread.currentThread().name}) ✅ 初始化分析和广告SDK。")
+                delay(600) // 模拟两个SDK的初始化
+            }
+            Log.d("AppStartup", "6. [3rdParty] (${Thread.currentThread().name}) ✅ 第三方SDK初始化完成。")
         }
-        Log.d("AppStartup", "6. [3rdParty] (${Thread.currentThread().name}) ✅ 第三方SDK初始化完成。")
     }
 }
+
