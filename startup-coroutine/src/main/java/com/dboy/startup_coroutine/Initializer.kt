@@ -42,9 +42,8 @@ abstract class Initializer<T> {
     /**
      * Executes the actual initialization work.
      *
-     * This method is a suspend function and is **always dispatched on the main thread** by default,
-     * regardless of the [InitMode]. This design choice ensures that UI-related initializations
-     * are safe to perform directly.
+     * This is a suspend function that has nothing to do with [InitMode],
+     * it is related to the thread context set by [StartupDispatchers.executeDispatcher].
      *
      * **Important**: For any potentially blocking or long-running operations (e.g., file I/O,
      * network requests, heavy computation), you **must** switch to a background dispatcher
@@ -55,12 +54,12 @@ abstract class Initializer<T> {
      *
      * 执行实际的初始化工作。
      *
-     * 这是一个挂起函数，并且无论 [InitMode] 是什么，它 **默认总是在主线程上被调度执行**。
-     * 这种设计确保了与UI相关的初始化操作可以直接安全地执行。
+     * 这是一个挂起函数，所在线程与 [InitMode] 无关，
+     * 它与[StartupDispatchers.executeDispatcher]设置的线程上下文有关。
      *
      * **重要提示**: 对于任何潜在的阻塞或长时间运行的操作（例如：文件I/O、网络请求、复杂计算），
      * 你 **必须** 使用 `withContext(Dispatchers.IO)` 或 `withContext(Dispatchers.Default)`
-     * 将其切换到后台调度器上执行，以避免阻塞主线程并导致ANR。
+     * 将其切换到后台调度器上执行.
      *
      * @param context The application's global context, whose lifecycle is tied to the app process.
      * (Application全局上下文，生命周期与应用进程一致。)
@@ -107,7 +106,7 @@ abstract class Initializer<T> {
      * - [InitMode.SERIAL] : 任务将按其依赖关系顺序执行。
      * - [InitMode.PARALLEL] : 任务在依赖满足后，可以与其他并行任务并发执行。
      *
-     * 请注意，执行模式 **不决定** 执行线程。所有任务都从主线程开始。
+     * 请注意，执行模式 **不决定** 执行线程。
      *
      * @return The [InitMode]. Defaults to [InitMode.SERIAL].
      * ([InitMode]。默认为 [InitMode.SERIAL]。)
