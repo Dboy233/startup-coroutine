@@ -1,6 +1,7 @@
 package com.dboy.startup_coroutine
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -11,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
@@ -59,7 +61,7 @@ open class Startup(
     private val dispatchers: StartupDispatchers = StartupDispatchers.createDefault(),
     private val initializers: List<Initializer<*>>,
     private val onCompletion: () -> Unit,
-    private val onError: ((List<Throwable>) -> Unit)? = null
+    private val onError: ((List<StartupException>) -> Unit)? = null
 ) : DependenciesProvider {
 
     // Stores the results of each initializer.
@@ -94,7 +96,7 @@ open class Startup(
         }
 
         scope.launch {
-            val exceptions = mutableListOf<Throwable>()
+            val exceptions = mutableListOf<StartupException>()
             try {
                 // 1. Sorts and validates initializers topologically.
                 // 1. 对任务进行拓扑排序和验证。
@@ -108,8 +110,14 @@ open class Startup(
                 // 2. Execute all serial tasks. A failure here will throw an exception and terminate the process immediately.
                 // 2. 执行所有串行任务。如果串行任务失败，将立即抛出异常并终止整个启动流程。
                 for (initializer in serialInitializers) {
-                    withContext(dispatchers.executeDispatcher) {
-                        execute(initializer)
+                    try {
+                        withContext(dispatchers.executeDispatcher) {
+                            execute(initializer)
+                        }
+                    } catch (e: Throwable) {
+                        exceptions.add(StartupException(initializer::class, e))
+                        //抛出以终止后续所有任务
+                        throw e
                     }
                 }
 
@@ -138,24 +146,53 @@ open class Startup(
 
                     // Wait for all parallel jobs to complete (successfully or with failure).
                     // 等待所有并行任务完成（无论成功或失败）。
-                    parallelJobs.values.awaitAll()
+                    parallelJobs.values.joinAll()
+                    // 我们需要一个从 Job 到 Initializer 的反向映射
+                    val jobToInitializerMap = parallelJobs.entries.associate { (k, v) -> v to k }
+                    // 手动收集所有非取消异常
+                    parallelJobs.values.forEach { job ->
+                        // 我们只检查已被取消/失败的任务。
+                        // 这个 if 条件至关重要：它强制 await() 进入“抛出取消异常”的逻辑分支，
+                        if (job.isCancelled) {
+                            try {
+                                // 由于我们已经调用了 joinAll()，因此 await() 不会在这里暂停。
+                                // 它将立即返回结果或抛出存储的异常。
+                                job.await()
+                            } catch (e: CancellationException) {
+                                // 我们显式忽略 CancellationExceptions，因为它们通常不是此逻辑失败的根本原因。
+                                val rootCause = e.cause
+                                if (rootCause != null) {
+                                    jobToInitializerMap[job]?.let { failedClass ->
+                                        exceptions.add(StartupException(failedClass, rootCause))
+                                    }
+                                }
+                            } catch (e: Throwable) {
+                                // 这是一次“真正的”失败。将其添加到我们的例外列表中。
+                                jobToInitializerMap[job]?.let { failedClass ->
+                                    exceptions.add(StartupException(failedClass, e))
+                                }
+                            }
+                        }
+                    }
+
                 }
 
             } catch (e: Throwable) {
                 // Catches all exceptions from the startup process, including failures from serial tasks
                 // and composite exceptions from parallel tasks.
                 // 捕获所有在启动流程中发生的异常，包括串行任务的失败和并行任务的复合异常。
-                exceptions.add(e)
-                // Collect all suppressed exceptions (from multiple failing jobs in awaitAll).
-                // 收集所有被抑制的异常（来自 awaitAll 的多个失败任务）。
-                e.suppressed.forEach { exceptions.add(it) }
+                if (exceptions.isEmpty()) {
+                    // 对于无法确定来源的异常（如拓扑排序失败或串行任务失败），
+                    // 我们可以使用一个特殊的 KClass 或 null。这里用 Startup::class 代表框架自身错误。
+                    exceptions.add(StartupException(Startup::class, e))
+                }
             } finally {
 
                 // If the scope was cancelled, ensure a CancellationException is reported.
                 // 如果 scope 被主动取消，确保一个 CancellationException 被报告。
-                if (scope.coroutineContext[Job]?.isCancelled == true && exceptions.none { it is CancellationException }) {
+                if (scope.coroutineContext[Job]?.isCancelled == true && exceptions.none { it.exception is CancellationException }) {
                     // 如果是被取消的，并且异常列表里还没有 CancellationException，就手动添加一个
-                    exceptions.add(CancellationException("Startup was cancelled."))
+                    exceptions.add(StartupException(Startup::class, CancellationException("Startup was cancelled.")))
                 }
 
                 // Check if any exceptions occurred.
@@ -267,8 +304,47 @@ open class Startup(
             throw IllegalStateException("Circular dependency detected in initializers!")
         }
 
+        // --- Stage 4: Print Dependency Graph ---
+        // --- 阶段四：打印依赖关系图 ---
+        printDependenciesGraph(sortedList, initializerMap)
+
         return sortedList
     }
+
+
+    /**
+     * 打印所有任务的拓扑依赖图到控制台。
+     * 格式:
+     * ```txt
+     * [执行模式] TaskName
+     *   ├─ Dependency1
+     *   └─ Dependency2
+     * ```
+     */
+    private fun printDependenciesGraph(
+        sortedInitializers: List<Initializer<*>>,
+        initializerMap: Map<KClass<out Initializer<*>>, Initializer<*>>
+    ) {
+        val logContent = StringBuilder("\n--- Startup Coroutine Dependency Graph ---\n\n")
+
+        sortedInitializers.forEach { initializer ->
+            val mode = "[${initializer.initMode()}]".padEnd(10, ' ')
+            logContent.append("$mode${initializer::class.simpleName}\n")
+
+            val dependencies = initializer.dependencies()
+            if (dependencies.isNotEmpty()) {
+                dependencies.forEachIndexed { index, depClass ->
+                    val prefix = if (index == dependencies.size - 1) "  └─ " else "  ├─ "
+                    val depMode = initializerMap[depClass]?.initMode() ?: "UNKNOWN"
+                    logContent.append("$prefix${depClass.simpleName} [$depMode]\n")
+                }
+            }
+        }
+        logContent.append("\n----------------------------------------")
+        // 使用 Log.d 打印，以便在 Android Logcat 中查看
+        Log.d("StartupCoroutine", logContent.toString())
+    }
+
 
     /**
      * 取消所有正在进行的初始化任务。

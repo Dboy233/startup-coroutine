@@ -139,7 +139,7 @@ object P_MixC : BaseTestInitializer<Unit>(
  * 一个在初始化时必定会抛出 [RuntimeException] 的并行任务。
  */
 object FailingParallelA :
-    BaseTestInitializer<Unit>("FailingParallelA", mode = InitMode.PARALLEL, action = { _, _ ->
+    BaseTestInitializer<String>("FailingParallelA", mode = InitMode.PARALLEL, action = { _, _ ->
         // 在 action 中抛出异常，用于测试框架的异常捕获和报告能力。
         println("💥 -> 初始值设定项 'FailingParallelA' 即将抛出异常！")
         throw RuntimeException("FailingParallelA failed!")

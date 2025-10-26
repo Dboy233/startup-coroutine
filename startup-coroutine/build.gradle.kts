@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.dboy.startup_coroutine"
+    namespace = "com.dboy.startup.coroutine"
     compileSdk = 36
 
     defaultConfig {
@@ -46,4 +46,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.truth.v145)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("io.mockk:mockk:1.13.5")
 }

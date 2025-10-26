@@ -7,36 +7,52 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
-
         Log.d("AppStartup", "============== 启动流程开始 ==============")
+
+        // 记录启动开始的时间
         val startTime = System.currentTimeMillis()
 
+        //构建并启动 Startup 框架
         val startup = Startup(
             context = this,
+            // 定义所有需要执行的初始化任务列表
             initializers = listOf(
-                // 添加所有需要执行的任务
+                PrivacyConsentInitializer(),
+                NetworkInitializer(),
+                LoggingInitializer(),
                 ConfigInitializer(),
-                LogInitializer(),
                 UserAuthInitializer(),
                 DatabaseInitializer(),
-                AdsInitializer(),
-                UIThemeInitializer()
+                UIThemeInitializer(),
+                ThirdPartySDKInitializer(),
+                UnnecessaryAnalyticsInitializer(),
             ),
+            // 定义所有任务成功完成后的回调
             onCompletion = {
                 val duration = System.currentTimeMillis() - startTime
-                Log.d("AppStartup", "============== ✅ 启动流程成功完成 (耗时: ${duration}ms) ==============")
-                // 在这里可以认为App已准备好，可以展示主界面
+                Log.d(
+                    "AppStartup",
+                    "============== 启动流程成功结束，总耗时: $duration ms =============="
+                )
             },
+            // 定义任何任务失败时的回调
             onError = { errors ->
                 val duration = System.currentTimeMillis() - startTime
-                Log.e("AppStartup", "============== 🔥 启动流程失败 (耗时: ${duration}ms) ==============")
+                Log.e(
+                    "AppStartup",
+                    "============== 启动流程发生错误，总耗时: $duration ms =============="
+                )
+                // 打印所有捕获到的异常信息
                 errors.forEach { error ->
-                    Log.e("AppStartup", "错误详情: ", error)
+                    Log.e("AppStartup", "捕获到的异常: ${error.initializerClass}", error.exception)
                 }
-                // 在这里可以进行错误上报或降级处理
             }
         )
 
+        //调用 start() 方法，开始执行所有初始化任务
         startup.start()
+
+        Log.d("AppStartup", "startup.start() 已调用，主线程继续执行其他任务...")
     }
 }
+

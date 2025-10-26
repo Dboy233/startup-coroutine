@@ -3,6 +3,9 @@
 package com.dboy.startup_coroutine
 
 import android.content.Context
+import android.util.Log
+import io.mockk.every
+import io.mockk.mockkStatic
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -66,7 +69,7 @@ class StartupTest {
      * 除非在特定测试中需要覆盖（例如，测试 IO 相关的场景）。
      */
     private fun createTestDispatchers(
-        start: TestDispatcher = ioTestDispatcher,
+        start: TestDispatcher = mainDispatcherRule.testDispatcher,
         execute: TestDispatcher = mainDispatcherRule.testDispatcher,
         callback: TestDispatcher = mainDispatcherRule.testDispatcher
     ) = StartupDispatchers(start, execute, callback)
@@ -79,6 +82,11 @@ class StartupTest {
      */
     @Before
     fun setup() {
+        mockkStatic(Log::class)
+        every { Log.i(any(), any()) } returns 0
+        every { Log.d(any(), any()) } returns 0
+        every { Log.w(any(), any<String>()) } returns 0 // 对 w 方法的特定重载进行 mock
+        every { Log.e(any(), any()) } returns 0
         // 每个测试开始前重置单例对象的状态
         listOf(
             S1, S2, S3, P1, P2, PA, PB, PC, PD, CycleA, CycleB, CycleC,
@@ -155,7 +163,7 @@ class StartupTest {
                 println("测试 2: onCompletion 回调被触发")
                 completed = true
             },
-            onError = { throw it.first() }
+            onError = { throw it.first().exception }
         )
 
         println("测试 2: 调用 startup.start()")
@@ -192,7 +200,7 @@ class StartupTest {
                 println("测试 3: onCompletion 回调被触发")
                 completed = true
             },
-            onError = { throw it.first() }
+            onError = { throw it.first().exception }
         )
 
         println("测试 3: 调用 startup.start()")
@@ -228,7 +236,7 @@ class StartupTest {
                 println("测试 4: onCompletion 回调被触发")
                 completed = true
             },
-            onError = { throw it.first() }
+            onError = { throw it.first().exception }
         )
 
         println("测试 4: 调用 startup.start()")
@@ -266,7 +274,7 @@ class StartupTest {
                 println("测试 5: onCompletion 回调被触发")
                 completed = true
             },
-            onError = { throw it.first() }
+            onError = { throw it.first().exception }
         )
 
         println("测试 5: 调用 startup.start()")
@@ -303,7 +311,7 @@ class StartupTest {
                 println("测试 6: onCompletion 回调被触发")
                 completed = true
             },
-            onError = { throw it.first() }
+            onError = { throw it.first().exception }
         )
 
         println("测试 6: 调用 startup.start()")
@@ -338,8 +346,8 @@ class StartupTest {
             initializers = listOf(CycleA, CycleB, CycleC),
             onCompletion = { fail("onCompletion 不应被调用") },
             onError = {
-                println("测试 7: onError 回调被触发，错误: ${it.firstOrNull()?.message}")
-                capturedThrowable = it.first()
+                println("测试 7: onError 回调被触发，错误: ${it.firstOrNull()?.exception?.message}")
+                capturedThrowable = it.first().exception
             }
         )
 
@@ -370,8 +378,8 @@ class StartupTest {
             initializers = listOf(PA, IllegalDepSerial),
             onCompletion = { fail("onCompletion 不应被调用") },
             onError = {
-                println("测试 8: onError 回调被触发，错误: ${it.firstOrNull()?.message}")
-                capturedThrowable = it.first()
+                println("测试 8: onError 回调被触发，错误: ${it.firstOrNull()?.exception?.message}")
+                capturedThrowable = it.first().exception
             }
         )
 
@@ -408,7 +416,7 @@ class StartupTest {
                 println("测试 9: onCompletion 回调被触发")
                 completed = true
             },
-            onError = { throw it.first() }
+            onError = { throw it.first().exception }
         )
 
         println("测试 9: 调用 startup.start()")
@@ -443,7 +451,7 @@ class StartupTest {
             onCompletion = { fail("onCompletion 不应被调用") },
             onError = {
                 println("测试 10: onError 回调被触发，错误数量: ${it.size}")
-                capturedErrors = it
+                capturedErrors = it.map { item -> item.exception }
             }
         )
 
@@ -481,7 +489,7 @@ class StartupTest {
             onCompletion = { fail("onCompletion 不应被调用") },
             onError = {
                 println("测试 11: onError 回调被触发，错误: ${it.firstOrNull()}")
-                capturedErrors = it
+                capturedErrors = it.map { item -> item.exception }
             }
         )
 
@@ -533,7 +541,7 @@ class StartupTest {
             onCompletion = { fail("onCompletion 不应被调用") },
             onError = {
                 println("测试 12: onError 回调被触发，错误数量: ${it.size}")
-                capturedErrors = it
+                capturedErrors = it.map { item -> item.exception }
             }
         )
 
@@ -584,7 +592,7 @@ class StartupTest {
                 println("测试 13: onCompletion 回调被触发")
                 completed = true
             },
-            onError = { fail("onError 不应被调用: ${it.firstOrNull()?.message}") }
+            onError = { fail("onError 不应被调用: ${it.firstOrNull()?.exception?.message}") }
         )
 
         println("测试 13: 调用 startup.start()")
