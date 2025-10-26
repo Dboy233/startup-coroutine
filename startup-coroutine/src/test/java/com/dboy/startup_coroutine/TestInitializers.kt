@@ -1,134 +1,183 @@
-// TestInitializers.kt
 package com.dboy.startup_coroutine
 
 import android.content.Context
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.delay
-import java.util.Collections
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.KClass
 
-// 用于在测试中同步记录执行日志，线程安全
-val logList = Collections.synchronizedList(mutableListOf<String>())
+/**
+ * 测试专用的 Initializer 基础类，提供了调用计数和执行时间记录等通用功能。
+ *
+ * @param T 返回值的类型。
+ * @param action 在 init 方法中执行的挂起 lambda，用于注入自定义测试逻辑。
+ * @param dependencies 声明此任务的依赖项。
+ * @param mode 声明此任务的执行模式（SERIAL 或 PARALLEL）。
+ */
+open class BaseTestInitializer<T>(
+    val name: String,
+    var action: (suspend (Context, DependenciesProvider) -> T)? = null,
+    var dependencies: List<KClass<out Initializer<*>>> = emptyList(),
+    private val mode: InitMode = InitMode.SERIAL // 默认串行
+) : Initializer<T>() {
 
-// 辅助函数：记录日志，包含任务名和当前线程名
-suspend fun log(taskName: String) {
-    logList.add("$taskName on ${Thread.currentThread().name}")
-    // 模拟耗时操作
-    delay(50)
+    // 记录 init 方法被调用的次数
+    val callCount = AtomicInteger(0)
+
+    // 记录 init 方法被调用的时间戳 (毫秒)
+    @Volatile
+    var executedAt: Long = 0L
+
+    override suspend fun init(context: Context, provider: DependenciesProvider): T {
+        println()
+        println("任务$name 开始执行")
+        executedAt = System.currentTimeMillis()
+        callCount.incrementAndGet()
+        @Suppress("UNCHECKED_CAST")
+        return action?.invoke(context, provider) ?: Unit as T
+    }
+
+    override fun dependencies(): List<KClass<out Initializer<*>>> = dependencies
+
+    override fun initMode(): InitMode = mode
+
+    override fun toString(): String {
+        return "TestInitializer(name='$name', mode=$mode)"
+    }
 }
 
-// --- 串行任务 ---
-class SerialTaskA : Initializer<String>() {
+// =====================================================================================
+// === 实现类，用于满足 StartupTest.kt 中的 12 个核心测试场景 ==========================
+// =====================================================================================
+
+// --- 场景 1 & 2: 串行任务依赖 ---
+object S1 : BaseTestInitializer<Unit>("S1", mode = InitMode.SERIAL)
+object S2 :
+    BaseTestInitializer<Unit>("S2", dependencies = listOf(S1::class), mode = InitMode.SERIAL)
+
+object S3 : BaseTestInitializer<Unit>(
+    "S3",
+    dependencies = listOf(S1::class, S2::class),
+    mode = InitMode.SERIAL
+)
+
+// --- 场景 3 & 4: 并行任务依赖串行任务 ---
+object P1 :
+    BaseTestInitializer<Unit>("P1", dependencies = listOf(S1::class), mode = InitMode.PARALLEL)
+
+object P2 : BaseTestInitializer<Unit>(
+    "P2",
+    dependencies = listOf(S1::class, S2::class),
+    mode = InitMode.PARALLEL
+)
+
+// --- 场景 5 & 6: 并行任务依赖并行任务 ---
+object PA : BaseTestInitializer<Unit>("PA", mode = InitMode.PARALLEL)
+object PB :
+    BaseTestInitializer<Unit>("PB", dependencies = listOf(PA::class), mode = InitMode.PARALLEL)
+
+object PC :
+    BaseTestInitializer<Unit>("PC", dependencies = listOf(PA::class), mode = InitMode.PARALLEL)
+
+object PD : BaseTestInitializer<Unit>(
+    "PD",
+    dependencies = listOf(PB::class, PC::class),
+    mode = InitMode.PARALLEL
+)
+
+// --- 场景 7: 循环依赖 ---
+object CycleA : BaseTestInitializer<Unit>(
+    "CycleA",
+    dependencies = listOf(CycleC::class),
+    mode = InitMode.PARALLEL
+)
+
+object CycleB : BaseTestInitializer<Unit>(
+    "CycleB",
+    dependencies = listOf(CycleA::class),
+    mode = InitMode.PARALLEL
+)
+
+object CycleC : BaseTestInitializer<Unit>(
+    "CycleC",
+    dependencies = listOf(CycleB::class),
+    mode = InitMode.PARALLEL
+)
+
+// --- 场景 8: 串行任务非法依赖并行任务 ---
+object IllegalDepSerial : BaseTestInitializer<Unit>(
+    "IllegalDepSerial",
+    dependencies = listOf(PA::class),
+    mode = InitMode.SERIAL
+)
+
+// --- 场景 9: 混合依赖 (P_MixC 依赖串行 S1 和并行 PA) ---
+object P_MixC : BaseTestInitializer<Unit>(
+    "P_MixC",
+    dependencies = listOf(S1::class, PA::class),
+    mode = InitMode.PARALLEL
+)
+
+// --- 场景 10 & 12: 异常处理 ---
+// 并行任务，初始化会失败
+object FailingParallelA :
+    BaseTestInitializer<Unit>("FailingParallelA", mode = InitMode.PARALLEL, action = { _, _ ->
+        throw RuntimeException("FailingParallelA failed!")
+    })
+
+// 依赖于失败任务的并行任务
+object DependentOnFailure : BaseTestInitializer<Unit>(
+    "DependentOnFailure",
+    dependencies = listOf(FailingParallelA::class),
+    mode = InitMode.PARALLEL
+)
+
+// 正常的并行任务，用于验证其是否受影响
+object NormalParallelB : BaseTestInitializer<Unit>("NormalParallelB", mode = InitMode.PARALLEL)
+
+class ThreadSwitchingInitializer : BaseTestInitializer<String>(
+    name = "ThreadSwitcher",
+    mode = InitMode.PARALLEL,
+) {
+    var dispatcherProvider: () -> CoroutineDispatcher = { Dispatchers.IO }
+
     override suspend fun init(context: Context, provider: DependenciesProvider): String {
-        log("SerialTaskA")
-        return "ResultA"
+        // 调用父类方法来记录时间和调用次数
+        super.init(context, provider)
+
+        val initialThreadName = Thread.currentThread().name
+
+        val result = withContext(dispatcherProvider()) {
+            val ioThreadName = Thread.currentThread().name
+            "InitialThread: $initialThreadName, IOThread: $ioThreadName"
+        }
+
+        return result
     }
 }
 
-class SerialTaskB : Initializer<String>() {
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(SerialTaskA::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider): String {
-        log("SerialTaskB")
-        // 测试获取依赖结果
-        val resultA = provider.result<String>(SerialTaskA::class)
-        assert(resultA == "ResultA")
-        return "ResultB"
+class ResultInitializer(
+    private val result: String,
+    action: (suspend (Context, DependenciesProvider) -> String)? = { _, _ -> result },
+) :
+    BaseTestInitializer<String>(
+        name = "ResultInitializer",
+        mode = InitMode.PARALLEL,
+        action = action
+    )
+
+class CancellableInitializer : BaseTestInitializer<Unit>(
+    name = "Cancellable",
+    mode = InitMode.SERIAL
+) {
+    private val completable = CompletableDeferred<Unit>()
+
+    override suspend fun init(context: Context, provider: DependenciesProvider): Unit {
+        super.init(context, provider)
+        completable.await()
     }
-}
 
-class SerialTaskC : Initializer<Unit>() {
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(SerialTaskA::class, SerialTaskB::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        log("SerialTaskC")
-    }
-}
-
-// --- 并行任务 ---
-class ParallelTaskD : Initializer<Unit>() {
-    override fun initMode(): InitMode = InitMode.PARALLEL
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(SerialTaskA::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        log("ParallelTaskD")
-    }
-}
-
-class ParallelTaskE : Initializer<Unit>() {
-    override fun initMode(): InitMode = InitMode.PARALLEL
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(SerialTaskA::class, SerialTaskB::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        log("ParallelTaskE")
-    }
-}
-
-class ParallelTaskF : Initializer<String>() {
-    override fun initMode(): InitMode = InitMode.PARALLEL
-    override suspend fun init(context: Context, provider: DependenciesProvider): String {
-        log("ParallelTaskF")
-        return "ResultF"
-    }
-}
-
-class ParallelTaskG : Initializer<Unit>() {
-    override fun initMode(): InitMode = InitMode.PARALLEL
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(ParallelTaskF::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        log("ParallelTaskG")
-        val resultF = provider.result<String>(ParallelTaskF::class)
-        assert(resultF == "ResultF")
-    }
-}
-
-class ParallelTaskH : Initializer<Unit>() {
-    override fun initMode(): InitMode = InitMode.PARALLEL
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(ParallelTaskF::class, ParallelTaskG::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        log("ParallelTaskH")
-    }
-}
-
-// --- 用于异常和依赖测试的特殊任务 ---
-
-// 循环依赖: I -> J -> I
-class CircularTaskI : Initializer<Unit>() {
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(CircularTaskJ::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) { log("CircularTaskI") }
-}
-
-class CircularTaskJ : Initializer<Unit>() {
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(CircularTaskI::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) { log("CircularTaskJ") }
-}
-
-// 串行依赖并行 (非法)
-class InvalidDependencyTaskK : Initializer<Unit>() {
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(ParallelTaskF::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) { log("InvalidDependencyTaskK") }
-}
-
-// 混合依赖任务
-class MixedDependencyTaskL : Initializer<Unit>() {
-    override fun initMode(): InitMode = InitMode.PARALLEL
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(SerialTaskA::class, SerialTaskB::class, ParallelTaskF::class, ParallelTaskG::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        log("MixedDependencyTaskL")
-    }
-}
-
-// 会抛出异常的任务
-class ExceptionTaskM : Initializer<Unit>() {
-    override fun initMode(): InitMode = InitMode.PARALLEL
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        log("ExceptionTaskM_Start")
-        throw RuntimeException("M task failed deliberately!")
-    }
-}
-
-// 依赖于会抛出异常的任务
-class DependentOnExceptionTaskN : Initializer<Unit>() {
-    override fun initMode(): InitMode = InitMode.PARALLEL
-    override fun dependencies(): List<KClass<out Initializer<*>>> = listOf(ExceptionTaskM::class)
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        // 这个任务不应该被执行
-        log("DependentOnExceptionTaskN")
-    }
+    fun complete() = completable.complete(Unit)
 }

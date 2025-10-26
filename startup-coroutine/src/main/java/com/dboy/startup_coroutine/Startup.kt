@@ -1,15 +1,16 @@
 package com.dboy.startup_coroutine
 
 import android.content.Context
-import android.os.AsyncTask.execute
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
@@ -35,6 +36,8 @@ import kotlin.reflect.KClass
  * - **可取消**: 可以随时安全地取消整个启动流程。
  *
  * @param context Android Application Context。
+ * @param dispatchers 协程调度器配置，用于定义启动、执行和回调的线程模型。
+ *                    默认为 `StartupDispatchers.createDefault()`。
  * @param initializers 所有需要执行的 [Initializer] 任务列表。
  * @param onCompletion 所有任务成功执行后的回调，在主线程上调用。
  * @param onError 任何任务执行失败后的回调，聚合所有异常后在主线程上调用。
@@ -53,6 +56,7 @@ import kotlin.reflect.KClass
  */
 open class Startup(
     private val context: Context,
+    private val dispatchers: StartupDispatchers = StartupDispatchers.createDefault(),
     private val initializers: List<Initializer<*>>,
     private val onCompletion: () -> Unit,
     private val onError: ((List<Throwable>) -> Unit)? = null
@@ -62,9 +66,9 @@ open class Startup(
     // 用于存储每个初始化任务的结果。
     private val results = ConcurrentHashMap<KClass<out Initializer<*>>, Any>()
 
-    // A CoroutineScope to manage the lifecycle of all initialization tasks.
     // CoroutineScope 用于管理所有初始化任务的生命周期。
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope: CoroutineScope =
+        CoroutineScope(SupervisorJob() + dispatchers.startDispatcher)
 
     // Atomic flag to prevent multiple invocations of the start() method.
     // 原子状态锁，防止 start() 方法被多次调用。
@@ -79,6 +83,7 @@ open class Startup(
      * 启动整个初始化流程。
      * 此方法是线程安全的，且只能被成功调用一次。
      */
+    @OptIn(DelicateCoroutinesApi::class)
     fun start() {
         // 使用 compareAndSet 确保 start 逻辑只执行一次
         // Use compareAndSet to ensure that the start logic is executed only once
@@ -103,7 +108,7 @@ open class Startup(
                 // 2. Execute all serial tasks. A failure here will throw an exception and terminate the process immediately.
                 // 2. 执行所有串行任务。如果串行任务失败，将立即抛出异常并终止整个启动流程。
                 for (initializer in serialInitializers) {
-                    withContext(Dispatchers.Main){
+                    withContext(dispatchers.executeDispatcher) {
                         execute(initializer)
                     }
                 }
@@ -114,7 +119,7 @@ open class Startup(
                     val parallelJobs = mutableMapOf<KClass<out Initializer<*>>, Deferred<*>>()
 
                     for (initializer in parallelInitializers) {
-                        val job = async(Dispatchers.Main) {
+                        val job = async(dispatchers.executeDispatcher) {
                             // Before starting the current task, wait for its dependencies to complete.
                             // 在启动当前任务前，先等待其所有依赖项完成。
                             val dependencyJobs = initializer.dependencies()
@@ -157,14 +162,26 @@ open class Startup(
                 // 检查是否发生了异常。
                 if (exceptions.isNotEmpty()) {
                     // 如果有错误回调，则调用它
-                    withContext(Dispatchers.Main){
-                        onError?.invoke(exceptions)
+                    if (isActive) {
+                        withContext(dispatchers.callbackDispatcher) {
+                            onError?.invoke(exceptions)
+                        }
+                    } else {
+                        GlobalScope.launch(dispatchers.callbackDispatcher) {
+                            onError?.invoke(exceptions)
+                        }
                     }
                 } else {
                     // If all tasks succeeded, invoke the completion callback.
                     // 4. 所有任务成功完成后，调用完成回调。
-                    withContext(Dispatchers.Main){
-                        onCompletion.invoke()
+                    if (isActive) {
+                        withContext(dispatchers.callbackDispatcher) {
+                            onCompletion.invoke()
+                        }
+                    } else {
+                        GlobalScope.launch(dispatchers.callbackDispatcher) {
+                            onCompletion.invoke()
+                        }
                     }
                 }
             }
