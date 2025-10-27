@@ -1,6 +1,9 @@
-package com.dboy.startup_coroutine
+package com.dboy.startup.coroutine
 
 import android.content.Context
+import com.dboy.startup.coroutine.api.DependenciesProvider
+import com.dboy.startup.coroutine.api.InitMode
+import com.dboy.startup.coroutine.api.Initializer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -9,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.KClass
 
 /**
- * 提供一系列用于单元测试的 [Initializer] 实现类。
+ * 提供一系列用于单元测试的 [com.dboy.startup.coroutine.api.Initializer] 实现类。
  *
  * 这些类被设计用来模拟各种启动场景，包括不同的依赖关系、执行模式、成功、失败、
  * 耗时操作、线程切换以及取消等，以全面验证 [Startup] 框架的正确性和健壮性。
@@ -22,7 +25,7 @@ import kotlin.reflect.KClass
  * @param T 返回值的类型。
  * @param action 在 init 方法中执行的挂起 lambda，用于注入自定义测试逻辑，如抛出异常或返回特定值。
  * @param dependencies 声明此任务的依赖项列表。
- * @param mode 声明此任务的执行模式 ([InitMode.SERIAL] 或 [InitMode.PARALLEL])。
+ * @param mode 声明此任务的执行模式 ([com.dboy.startup.coroutine.api.InitMode.SERIAL] 或 [com.dboy.startup.coroutine.api.InitMode.PARALLEL])。
  */
 open class BaseTestInitializer<T>(
     val name: String,

@@ -33,18 +33,10 @@ android {
 }
 
 dependencies {
-
-//    implementation(libs.androidx.core.ktx)
-//    implementation(libs.androidx.appcompat)
-//    implementation(libs.material)
-//    androidTestImplementation(libs.androidx.junit)
-//    androidTestImplementation(libs.androidx.espresso.core)
-//    testImplementation(libs.truth)
-
     api(libs.kotlinx.coroutines.android)
     testImplementation(libs.mockito.core)
     testImplementation(libs.junit)
     testImplementation(libs.truth.v145)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation("io.mockk:mockk:1.13.5")
+    testImplementation(libs.mockk)
 }

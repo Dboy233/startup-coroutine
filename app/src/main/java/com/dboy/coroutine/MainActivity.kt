@@ -1,4 +1,4 @@
-package com.dboy.startup_coroutine
+package com.dboy.coroutine
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

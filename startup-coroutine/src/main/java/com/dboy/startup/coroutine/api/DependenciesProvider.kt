@@ -1,4 +1,4 @@
-package com.dboy.startup_coroutine
+package com.dboy.startup.coroutine.api
 
 import kotlin.reflect.KClass
 

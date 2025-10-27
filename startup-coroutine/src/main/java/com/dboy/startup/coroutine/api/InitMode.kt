@@ -1,4 +1,4 @@
-package com.dboy.startup_coroutine
+package com.dboy.startup.coroutine.api
 
 /**
  * Defines the execution strategy for an [Initializer] within the startup process.
@@ -26,7 +26,7 @@ enum class InitMode {
      * - **Use Case**: Suitable for a sequence of tasks that have a strict, non-parallelizable
      *   order (e.g., Task B must run only after Task A is fully complete).
      *
-     * **Guidance**: If the task with [DefaultDispatchers] will start on the main thread, you can directly perform
+     * **Guidance**: If the task with [com.dboy.startup.coroutine.DefaultDispatchers] will start on the main thread, you can directly perform
      * quick, main-thread-only operations. For any potentially time-consuming work
      * (like I/O or heavy computation), you **must** wrap it in `withContext(Dispatchers.IO)`
      * or `withContext(Dispatchers.Default)` to avoid blocking the UI.
@@ -39,7 +39,7 @@ enum class InitMode {
      *
      * - **适用场景**: 适用于具有严格、不可并行顺序的一系列任务（例如，任务B必须在任务A完全完成后才能运行）。
      *
-     * **使用指导**: 如果使用[DefaultDispatchers]任务将在主线程上启动，你可以直接执行那些耗时短且必须在主线程的操作。
+     * **使用指导**: 如果使用[com.dboy.startup.coroutine.DefaultDispatchers]任务将在主线程上启动，你可以直接执行那些耗时短且必须在主线程的操作。
      * 对于任何可能耗时的工作（如 I/O 或复杂计算），你 **必须** 将其包裹在
      * `withContext(Dispatchers.IO)` 或 `withContext(Dispatchers.Default)` 中，以避免阻塞UI。
      *
@@ -55,7 +55,7 @@ enum class InitMode {
      * tasks, once their dependencies are met. The framework leverages coroutines to
      * manage this concurrency efficiently.
      *
-     * - **Execution Thread**: If the task with [DefaultDispatchers] will start on the main thread. Concurrency is achieved
+     * - **Execution Thread**: If the task with [com.dboy.startup.coroutine.DefaultDispatchers] will start on the main thread. Concurrency is achieved
      *   through non-blocking suspension and resumption, managed by the coroutine scheduler.
      * - **Use Case**: The default choice for most tasks. Ideal for any initializer that can
      *   run independently of others (once its direct dependencies are satisfied).
@@ -75,7 +75,7 @@ enum class InitMode {
      * 标记为 `PARALLEL` 的任务，在它们的依赖项被满足后，将有资格与其他 `PARALLEL` 任务并发执行。
      * 框架通过协程来高效地管理这种并发性。
      *
-     * - **执行线程**: 如果使用[DefaultDispatchers]任务将在主线程上启动. 其并发性是通过协程调度器的非阻塞式挂起和恢复来实现的。
+     * - **执行线程**: 如果使用[com.dboy.startup.coroutine.DefaultDispatchers]任务将在主线程上启动. 其并发性是通过协程调度器的非阻塞式挂起和恢复来实现的。
      * - **适用场景**: 大多数任务的默认选择。适用于任何可以独立于其他任务运行的初始化程序（一旦其直接依赖项被满足）。
      *
      * **使用指导**: 与 `SERIAL` 任务一样，执行也是在主线程上启动。因此，将任何阻塞或长时间运行的操作

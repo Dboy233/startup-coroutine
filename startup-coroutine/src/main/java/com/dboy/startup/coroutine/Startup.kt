@@ -1,7 +1,12 @@
-package com.dboy.startup_coroutine
+package com.dboy.startup.coroutine
 
 import android.content.Context
 import android.util.Log
+import com.dboy.startup.coroutine.api.DependenciesProvider
+import com.dboy.startup.coroutine.api.InitMode
+import com.dboy.startup.coroutine.api.Initializer
+import com.dboy.startup.coroutine.model.StartupException
+import com.dboy.startup.coroutine.model.TaskMetrics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -22,14 +27,6 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.KClass
 import kotlin.system.measureTimeMillis
 
-
-/**
- * 用于保存单个初始值设定项任务的性能指标的数据类。
- */
-private data class TaskMetrics(
-    val name: String,
-    val duration: Long, val threadName: String
-)
 
 /**
  * 一个基于协程的、支持依赖关系、并行化和高级错误处理的异步启动框架。
@@ -355,6 +352,36 @@ open class Startup(
 
 
     /**
+     * 取消所有正在进行的初始化任务。
+     */
+    fun cancel() {
+        scope.cancel("Startup cancelled by caller.")
+    }
+
+
+    /**
+     * Retrieves the result of a completed dependency. Throws an exception if the result is unavailable.
+     * --- (中文说明) ---
+     * 获取一个已完成依赖项的结果。如果结果不可用，则抛出异常。
+     */
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> result(dependency: KClass<out Initializer<*>>): T {
+        return results[dependency] as? T
+            ?: throw IllegalStateException("Result for ${dependency.simpleName} not found. Is it declared as a dependency and does it return a non-Unit value?")
+    }
+
+    /**
+     * Safely retrieves the result of a completed dependency, or `null` if it's unavailable.
+     * --- (中文说明) ---
+     * 安全地获取一个已完成依赖项的结果，如果结果不可用则返回 `null`。
+     */
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> resultOrNull(dependency: KClass<out Initializer<*>>): T? {
+        return results[dependency] as? T
+    }
+
+
+    /**
      * 打印所有任务的拓扑依赖图到控制台。
      * 格式:
      * ```txt
@@ -385,35 +412,6 @@ open class Startup(
         logContent.append("\n----------------------------------------")
         // 使用 Log.d 打印，以便在 Android Logcat 中查看
         Log.d("StartupCoroutine", logContent.toString())
-    }
-
-
-    /**
-     * 取消所有正在进行的初始化任务。
-     */
-    fun cancel() {
-        scope.cancel("Startup cancelled by caller.")
-    }
-
-
-    /**
-     * Retrieves the result of a completed dependency. Throws an exception if the result is unavailable.
-     * --- (中文说明) ---
-     * 获取一个已完成依赖项的结果。如果结果不可用，则抛出异常。
-     */
-    override fun <T> result(dependency: KClass<out Initializer<*>>): T {
-        return results[dependency] as? T
-            ?: throw IllegalStateException("Result for ${dependency.simpleName} not found. Is it declared as a dependency and does it return a non-Unit value?")
-    }
-
-    /**
-     * Safely retrieves the result of a completed dependency, or `null` if it's unavailable.
-     * --- (中文说明) ---
-     * 安全地获取一个已完成依赖项的结果，如果结果不可用则返回 `null`。
-     */
-    @Suppress("UNCHECKED_CAST")
-    override fun <T> resultOrNull(dependency: KClass<out Initializer<*>>): T? {
-        return results[dependency] as? T
     }
 
 

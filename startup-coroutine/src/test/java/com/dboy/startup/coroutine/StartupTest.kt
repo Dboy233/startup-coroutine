@@ -1,6 +1,6 @@
 @file:Suppress("NonAsciiCharacters")
 
-package com.dboy.startup_coroutine
+package com.dboy.startup.coroutine
 
 import android.content.Context
 import android.util.Log

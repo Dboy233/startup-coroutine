@@ -1,4 +1,4 @@
-package com.dboy.startup_coroutine
+package com.dboy.startup.coroutine
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers

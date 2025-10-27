@@ -1,8 +1,11 @@
-package com.dboy.startup_coroutine
+package com.dboy.coroutine
 
 import android.content.Context
 import android.os.Looper
 import android.util.Log
+import com.dboy.startup.coroutine.api.DependenciesProvider
+import com.dboy.startup.coroutine.api.InitMode
+import com.dboy.startup.coroutine.api.Initializer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext

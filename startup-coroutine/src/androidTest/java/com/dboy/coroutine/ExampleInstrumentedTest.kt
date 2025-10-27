@@ -1,4 +1,4 @@
-package com.dboy.startup_coroutine
+package com.dboy.coroutine
 
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4

@@ -1,7 +1,8 @@
-package com.dboy.startup_coroutine
+package com.dboy.startup.coroutine.api
 
 import android.content.Context
 import kotlin.reflect.KClass
+
 /**
  * The core abstraction for an initialization task.
  *
@@ -18,7 +19,7 @@ import kotlin.reflect.KClass
  * @param T The data type returned after initialization. Use [Unit] if no result is needed.
  * (初始化完成后返回的数据类型。如果任务不需要返回任何结果，请使用 [Unit]。)
  *
- * @see Startup The actual manager and executor of the tasks.
+ * @see com.dboy.startup.coroutine.Startup The actual manager and executor of the tasks.
  * @sample
  * // A parallel task that returns a String result and performs I/O
  * // 一个返回字符串结果并执行I/O操作的并行任务
@@ -43,7 +44,7 @@ abstract class Initializer<T> {
      * Executes the actual initialization work.
      *
      * This is a suspend function that has nothing to do with [InitMode],
-     * it is related to the thread context set by [StartupDispatchers.executeDispatcher].
+     * it is related to the thread context set by [com.dboy.startup.coroutine.StartupDispatchers.executeDispatcher].
      *
      * **Important**: For any potentially blocking or long-running operations (e.g., file I/O,
      * network requests, heavy computation), you **must** switch to a background dispatcher
@@ -55,7 +56,7 @@ abstract class Initializer<T> {
      * 执行实际的初始化工作。
      *
      * 这是一个挂起函数，所在线程与 [InitMode] 无关，
-     * 它与[StartupDispatchers.executeDispatcher]设置的线程上下文有关。
+     * 它与[com.dboy.startup.coroutine.StartupDispatchers.executeDispatcher]设置的线程上下文有关。
      *
      * **重要提示**: 对于任何潜在的阻塞或长时间运行的操作（例如：文件I/O、网络请求、复杂计算），
      * 你 **必须** 使用 `withContext(Dispatchers.IO)` 或 `withContext(Dispatchers.Default)`

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.dboy.startup_coroutine"
+    namespace = "com.dboy.coroutine"
     compileSdk = 36
 
     defaultConfig {
