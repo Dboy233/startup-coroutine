@@ -224,3 +224,7 @@ Jetpack App Startup 是一个优秀的库，它通过 `ContentProvider` 实现�
 ## 📄 许可证
 
 本项目采用 Apache 2.0 许可证。详情请参阅 [LICENSE](https://github.com/Dboy233/startup-coroutine/blob/master/blob/LICENSE) 文件。
+
+### 致谢与声明
+
+本项目的开发过程得到了 AI 编程助手的支持。部分代码、文档和优化建议在 AI(Gemini) 的协助下完成，并由作者审查和整合。
