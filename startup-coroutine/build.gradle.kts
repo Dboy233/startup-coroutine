@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    `maven-publish`
 }
 
 android {
@@ -33,7 +34,7 @@ android {
 }
 
 dependencies {
-    api(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.mockito.core)
     testImplementation(libs.junit)
     testImplementation(libs.truth.v145)
