@@ -4,6 +4,7 @@ package com.dboy.startup.coroutine
 
 import android.content.Context
 import android.util.Log
+import com.dboy.startup.coroutine.model.StartupResult
 import io.mockk.every
 import io.mockk.mockkStatic
 import kotlinx.coroutines.CancellationException
@@ -120,11 +121,18 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(s1, s2),
-            onCompletion = {
-                println("测试 1: onCompletion 回调被触发")
-                completed = true
+            onResult = { result ->
+                when (result) {
+                    is StartupResult.Failure -> {
+                        fail("不应出现错误: ${result.exceptions}")
+                    }
+
+                    StartupResult.Success -> {
+                        println("测试 1: Success 回调被触发")
+                        completed = true
+                    }
+                }
             },
-            onError = { fail("onError 不应被调用") }
         )
 
         println("测试 1: 调用 startup.start()")
@@ -159,11 +167,18 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(s1, s2, s3),
-            onCompletion = {
-                println("测试 2: onCompletion 回调被触发")
-                completed = true
+            onResult = {
+                when (it) {
+                    is StartupResult.Failure -> {
+                        fail("不应出现错误: ${it.exceptions}")
+                    }
+
+                    StartupResult.Success -> {
+                        println("测试 2: Success 回调被触发")
+                        completed = true
+                    }
+                }
             },
-            onError = { throw it.first().exception }
         )
 
         println("测试 2: 调用 startup.start()")
@@ -196,11 +211,18 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(s1, p1),
-            onCompletion = {
-                println("测试 3: onCompletion 回调被触发")
-                completed = true
-            },
-            onError = { throw it.first().exception }
+            onResult = {
+                when (it) {
+                    is StartupResult.Failure -> {
+                        fail("不应出现错误: ${it.exceptions}")
+                    }
+
+                    StartupResult.Success -> {
+                        println("测试 3: Success 回调被触发")
+                        completed = true
+                    }
+                }
+            }
         )
 
         println("测试 3: 调用 startup.start()")
@@ -232,11 +254,18 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(s1, s2, p2),
-            onCompletion = {
-                println("测试 4: onCompletion 回调被触发")
-                completed = true
-            },
-            onError = { throw it.first().exception }
+            onResult = {
+                when (it) {
+                    is StartupResult.Failure -> {
+                        fail("不应出现错误: ${it.exceptions}")
+                    }
+
+                    StartupResult.Success -> {
+                        println("测试 4: Success 回调被触发")
+                        completed = true
+                    }
+                }
+            }
         )
 
         println("测试 4: 调用 startup.start()")
@@ -270,11 +299,18 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(pa, pb),
-            onCompletion = {
-                println("测试 5: onCompletion 回调被触发")
-                completed = true
+            onResult = {
+                when (it) {
+                    is StartupResult.Failure -> {
+                        fail("不应出现错误: ${it.exceptions}")
+                    }
+
+                    StartupResult.Success -> {
+                        println("测试 5: Success 回调被触发")
+                        completed = true
+                    }
+                }
             },
-            onError = { throw it.first().exception }
         )
 
         println("测试 5: 调用 startup.start()")
@@ -307,11 +343,19 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(pa, pb, pc, pd),
-            onCompletion = {
-                println("测试 6: onCompletion 回调被触发")
-                completed = true
-            },
-            onError = { throw it.first().exception }
+            onResult = {
+                when (it) {
+                    is StartupResult.Failure -> {
+                        fail("不应出现错误: ${it.exceptions}")
+                    }
+
+                    StartupResult.Success -> {
+                        println("测试 6: Success 回调被触发")
+                        completed = true
+
+                    }
+                }
+            }
         )
 
         println("测试 6: 调用 startup.start()")
@@ -344,11 +388,17 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(CycleA, CycleB, CycleC),
-            onCompletion = { fail("onCompletion 不应被调用") },
-            onError = {
-                println("测试 7: onError 回调被触发，错误: ${it.firstOrNull()?.exception?.message}")
-                capturedThrowable = it.first().exception
-            }
+            onResult = {
+                when(it){
+                    is StartupResult.Failure ->{
+                        println("测试 7: onError 回调被触发，错误: ${it.exceptions.firstOrNull()?.exception?.message}")
+                        capturedThrowable = it.exceptions.first().exception
+                    }
+                    StartupResult.Success -> {
+                        fail("任务不可能全部Success")
+                    }
+                }
+            },
         )
 
         println("测试 7: 调用 startup.start()")
@@ -376,11 +426,17 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(PA, IllegalDepSerial),
-            onCompletion = { fail("onCompletion 不应被调用") },
-            onError = {
-                println("测试 8: onError 回调被触发，错误: ${it.firstOrNull()?.exception?.message}")
-                capturedThrowable = it.first().exception
-            }
+            onResult = {
+                when(it){
+                    is StartupResult.Failure -> {
+                        println("测试 8: onError 回调被触发，错误: ${it.exceptions.firstOrNull()?.exception?.message}")
+                        capturedThrowable = it.exceptions.first().exception
+                    }
+                    StartupResult.Success -> {
+                         fail("任务不可能Success")
+                    }
+                }
+            },
         )
 
         println("测试 8: 调用 startup.start()")
@@ -412,11 +468,17 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(s1, pa, pMixC),
-            onCompletion = {
-                println("测试 9: onCompletion 回调被触发")
-                completed = true
+            onResult = {
+                when(it){
+                    is StartupResult.Failure -> {
+                         fail("测试 9 不应该出现错误: ${it.exceptions}")
+                    }
+                    StartupResult.Success -> {
+                        println("测试 9: Success 回调被触发")
+                        completed = true
+                    }
+                }
             },
-            onError = { throw it.first().exception }
         )
 
         println("测试 9: 调用 startup.start()")
@@ -448,11 +510,17 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(FailingParallelA, DependentOnFailure),
-            onCompletion = { fail("onCompletion 不应被调用") },
-            onError = {
-                println("测试 10: onError 回调被触发，错误数量: ${it.size}")
-                capturedErrors = it.map { item -> item.exception }
-            }
+            onResult = {
+                when(it){
+                    is StartupResult.Failure -> {
+                        println("测试 10: onError 回调被触发，错误数量: ${it.exceptions.size}")
+                        capturedErrors = it.exceptions.map { item -> item.exception }
+                    }
+                    StartupResult.Success -> {
+                         fail("任务不可能全部Success")
+                    }
+                }
+            },
         )
 
         println("测试 10: 调用 startup.start()")
@@ -486,11 +554,17 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(cancellableTask),
-            onCompletion = { fail("onCompletion 不应被调用") },
-            onError = {
-                println("测试 11: onError 回调被触发，错误: ${it.firstOrNull()}")
-                capturedErrors = it.map { item -> item.exception }
-            }
+            onResult = {
+                when(it){
+                    is StartupResult.Failure -> {
+                        println("测试 11: onError 回调被触发，错误: ${it.exceptions.firstOrNull()}")
+                        capturedErrors = it.exceptions.map { item -> item.exception }
+                    }
+                    StartupResult.Success -> {
+                        fail("任务不可能Success")
+                    }
+                }
+            },
         )
 
         // 1. 开始。任务被排队，但尚未执行。
@@ -538,11 +612,18 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(),
             initializers = listOf(failingTask, normalTask),
-            onCompletion = { fail("onCompletion 不应被调用") },
-            onError = {
-                println("测试 12: onError 回调被触发，错误数量: ${it.size}")
-                capturedErrors = it.map { item -> item.exception }
-            }
+            onResult = {
+                when(it){
+                    is StartupResult.Failure -> {
+                        println("测试 12: onError 回调被触发，错误数量: ${it.exceptions.size}")
+                        capturedErrors = it.exceptions.map { item -> item.exception }
+                    }
+
+                    StartupResult.Success -> {
+                         fail("任务不可能全部Success")
+                    }
+                }
+            },
         )
 
         println("测试 12: 调用 startup.start()")
@@ -588,11 +669,17 @@ class StartupTest {
             context = mockContext,
             dispatchers = createTestDispatchers(execute = mainDispatcherRule.testDispatcher),
             initializers = listOf(switcher, resultReader),
-            onCompletion = {
-                println("测试 13: onCompletion 回调被触发")
-                completed = true
+            onResult = {
+                when(it){
+                    is StartupResult.Failure -> {
+                        fail("任务不应该有异常: ${it.exceptions.firstOrNull()?.exception?.message}")
+                    }
+                    StartupResult.Success -> {
+                        println("测试 13: Success 回调被触发")
+                        completed = true
+                    }
+                }
             },
-            onError = { fail("onError 不应被调用: ${it.firstOrNull()?.exception?.message}") }
         )
 
         println("测试 13: 调用 startup.start()")

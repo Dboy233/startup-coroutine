@@ -6,6 +6,7 @@ import com.dboy.startup.coroutine.api.DependenciesProvider
 import com.dboy.startup.coroutine.api.InitMode
 import com.dboy.startup.coroutine.api.Initializer
 import com.dboy.startup.coroutine.model.StartupException
+import com.dboy.startup.coroutine.model.StartupResult
 import com.dboy.startup.coroutine.model.TaskMetrics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -41,16 +42,19 @@ import kotlin.system.measureTimeMillis
  * - **灵活的线程模型**: 开发者可以轻松地在任务内部切换到后台线程。
  * - **并行执行**: 无依赖关系的任务可以并行执行以缩短启动时间。
  * - **异常隔离**: 使用 `supervisorScope` 确保单个并行任务的失败不会影响其他任务。
- * - **统一错误报告**: 通过 `onError` 回调聚合所有发生的异常。
+ * - **统一结果回调**: 通过 `onResult` 回调统一处理成功或失败的最终状态。
  * - **可取消**: 可以随时安全地取消整个启动流程。
  *
  * @param context Android Application Context。
  * @param isDebug 在debug模式下会打印所有任务拓扑关系图和任务耗时清单.
- * @param dispatchers 协程调度器配置，用于定义启动、执行和回调的线程模型。
- *                    默认为 `StartupDispatchers.createDefault()`。
+ * @param dispatchers 协程调度器配置，用于定义启动、执行和回调的线程模型,默认为 [DefaultDispatchers]。
  * @param initializers 所有需要执行的 [Initializer] 任务列表。
- * @param onCompletion 所有任务成功执行后的回调，在主线程上调用。
- * @param onError 任何任务执行失败后的回调，聚合所有异常后在主线程上调用。
+ * @param onResult 所有任务流程执行完毕后的统一回调。
+ *                 该回调在所有可执行的任务（包括成功和失败的）都结束后触发。
+ *                 您可以通过检查其参数 [StartupResult] 的类型来处理成功或失败的情况。
+ *                 - **StartupResult.Success**: 表示所有任务均成功完成。
+ *                 - **StartupResult.Failure**: 表示至少有一个任务失败，其中包含了所有失败任务的详细信息列表。
+
  *
  * @sample
  * // class AnalyticsInitializer : Initializer<AnalyticsSDK>() { ... }
@@ -59,8 +63,16 @@ import kotlin.system.measureTimeMillis
  * val startup = Startup(
  *     context = applicationContext,
  *     initializers = listOf(AnalyticsInitializer(), AdsInitializer()),
- *     onCompletion = { Log.d("App", "All initializers completed!") },
- *     onError = { errors -> Log.e("App", "Startup failed with ${errors.size} errors.") }
+ *     onResult = { result ->
+ *         when (result) {
+ *             is StartupResult.Success -> {
+ *                 Log.d("App", "All initializers completed!")
+ *             }
+ *             is StartupResult.Failure -> {
+ *                 Log.e("App", "Startup failed with ${result.exceptions.size} errors.")
+ *             }
+ *         }
+ *     }
  * )
  * startup.start()
  */
@@ -69,8 +81,7 @@ open class Startup(
     private val isDebug: Boolean = false,
     private val dispatchers: StartupDispatchers = DefaultDispatchers,
     private val initializers: List<Initializer<*>>,
-    private val onCompletion: () -> Unit,
-    private val onError: ((List<StartupException>) -> Unit)? = null
+    private val onResult: ((StartupResult) -> Unit)? = null
 ) : DependenciesProvider {
 
     // Stores the results of each initializer.
@@ -221,30 +232,21 @@ open class Startup(
                     )
                 }
 
-                // Check if any exceptions occurred.
-                // 检查是否发生了异常。
-                if (exceptions.isNotEmpty()) {
-                    // 如果有错误回调，则调用它
-                    if (isActive) {
-                        withContext(dispatchers.callbackDispatcher) {
-                            onError?.invoke(exceptions)
-                        }
-                    } else {
-                        GlobalScope.launch(dispatchers.callbackDispatcher) {
-                            onError?.invoke(exceptions)
-                        }
+                //检查是否有异常任务
+                val result = if (exceptions.isNotEmpty()) {
+                    StartupResult.Failure(exceptions)
+                } else {
+                    StartupResult.Success
+                }
+
+                // 如果有错误回调，则调用它
+                if (isActive) {
+                    withContext(dispatchers.callbackDispatcher) {
+                        onResult?.invoke(result)
                     }
                 } else {
-                    // If all tasks succeeded, invoke the completion callback.
-                    // 4. 所有任务成功完成后，调用完成回调。
-                    if (isActive) {
-                        withContext(dispatchers.callbackDispatcher) {
-                            onCompletion.invoke()
-                        }
-                    } else {
-                        GlobalScope.launch(dispatchers.callbackDispatcher) {
-                            onCompletion.invoke()
-                        }
+                    GlobalScope.launch(dispatchers.callbackDispatcher) {
+                        onResult?.invoke(result)
                     }
                 }
             }

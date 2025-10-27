@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.dboy.startup.coroutine.ExecuteOnIODispatchers
 import com.dboy.startup.coroutine.Startup
+import com.dboy.startup.coroutine.model.StartupResult
 
 /**
  * 让Application更加简洁一些.
@@ -34,21 +35,24 @@ class App : Application() {
                 ThirdPartySDKInitializer(),
                 UnnecessaryAnalyticsInitializer(),
             ),
-            // 定义所有任务成功完成后的回调
-            onCompletion = {
-                Log.d(
-                    "AppStartup",
-                    "============== 启动流程成功结束=============="
-                )
-            },
-            // 定义任何任务失败时的回调
-            onError = { errors ->
-                Log.e(
-                    "AppStartup",
-                    "============== 启动流程发生错误 =============="
-                )
-                errors.forEach {
-                    Log.e("AppStartup", "任务${it.initializerClass}执行失败")
+            onResult = {
+                when (it) {
+                    is StartupResult.Failure -> {
+                        Log.e(
+                            "AppStartup",
+                            "============== 启动流程发生错误 =============="
+                        )
+                        it.exceptions.forEach { error ->
+                            Log.e("AppStartup", "任务${error.initializerClass}执行失败")
+                        }
+                    }
+
+                    StartupResult.Success -> {
+                        Log.d(
+                            "AppStartup",
+                            "============== 启动流程成功结束=============="
+                        )
+                    }
                 }
             }
         )
