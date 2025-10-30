@@ -49,4 +49,5 @@ dependencies {
 
     implementation(project(":startup-coroutine"))
 
+    implementation("androidx.startup:startup-runtime:1.2.0")
 }

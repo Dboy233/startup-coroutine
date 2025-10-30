@@ -2,9 +2,10 @@ package com.dboy.coroutine
 
 import android.app.Application
 import android.util.Log
-import com.dboy.startup.coroutine.ExecuteOnIODispatchers
+import androidx.startup.AppInitializer
 import com.dboy.startup.coroutine.Startup
 import com.dboy.startup.coroutine.model.StartupResult
+import kotlin.system.measureTimeMillis
 
 /**
  * 让Application更加简洁一些.
@@ -16,40 +17,65 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d("AppStartup", "============== 启动流程开始 ==============")
+        jetpackInitStartup()
+        initStartupCoroutine()
+    }
+
+    private fun jetpackInitStartup() {
+        Log.d("StartupJetpack", "============== StartupJetpack 启动流程开始 ==============")
+
+        val time = measureTimeMillis {
+            //需要自己弄明白依赖关系,只需要初始化两个末端任务即可,其内部会自动初始化他们依赖的任务
+            AppInitializer.getInstance(this).apply {
+                initializeComponent(JectpacjBugMonitorInitializer::class.java)
+                initializeComponent(JectpackAdsPlatformInitializer::class.java)
+            }
+        }
+        Log.d(
+            "StartupJetpack",
+            "============== StartupJetpack 启动流程成功结束=============="
+        )
+        Log.d("StartupJetpack", "StartupJetpack 总共耗时: $time")
+
+        timeStatistics.forEach {
+            Log.d("StartupJetpack", it)
+        }
+    }
+
+    private fun initStartupCoroutine() {
+        Log.d("StartupCoroutine", "============== 启动流程开始 ==============")
 
         //构建并启动 Startup 框架
         val startup = Startup(
             context = this,
             isDebug = true,
-            dispatchers = ExecuteOnIODispatchers,
-            // 定义所有需要执行的初始化任务列表
+            // 定义所有需要执行的初始化任务列表,无需排序
             initializers = listOf(
-                PrivacyConsentInitializer(),
-                NetworkInitializer(),
-                LoggingInitializer(),
+                BugMonitorInitializer(),
+                CommonUtilsInitializer(),
                 ConfigInitializer(),
-                UserAuthInitializer(),
                 DatabaseInitializer(),
-                UIThemeInitializer(),
-                ThirdPartySDKInitializer(),
-                UnnecessaryAnalyticsInitializer(),
+                AdsPlatformInitializer(),
             ),
             onResult = {
                 when (it) {
                     is StartupResult.Failure -> {
                         Log.e(
-                            "AppStartup",
+                            "StartupCoroutine",
                             "============== 启动流程发生错误 =============="
                         )
                         it.exceptions.forEach { error ->
-                            Log.e("AppStartup", "任务${error.initializerClass}执行失败")
+                            Log.e(
+                                "StartupCoroutine",
+                                "任务${error.initializerClass}执行失败",
+                                error.exception
+                            )
                         }
                     }
 
                     StartupResult.Success -> {
                         Log.d(
-                            "AppStartup",
+                            "StartupCoroutine",
                             "============== 启动流程成功结束=============="
                         )
                     }
@@ -60,7 +86,7 @@ class App : Application() {
         //调用 start() 方法，开始执行所有初始化任务
         startup.start()
 
-        Log.d("AppStartup", "startup.start() 已调用，主线程继续执行其他任务...")
+        Log.d("StartupCoroutine", "startup.start() 已调用，主线程继续执行其他任务...")
     }
 }
 

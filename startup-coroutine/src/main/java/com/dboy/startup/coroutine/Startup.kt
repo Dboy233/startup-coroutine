@@ -3,7 +3,6 @@ package com.dboy.startup.coroutine
 import android.content.Context
 import android.util.Log
 import com.dboy.startup.coroutine.api.DependenciesProvider
-import com.dboy.startup.coroutine.api.InitMode
 import com.dboy.startup.coroutine.api.Initializer
 import com.dboy.startup.coroutine.model.StartupException
 import com.dboy.startup.coroutine.model.StartupResult
@@ -128,31 +127,12 @@ open class Startup(
                 // 1. 对任务进行拓扑排序和验证。
                 val sortedInitializers = topologicalSortAndValidate(initializers)
 
-                val serialInitializers =
-                    sortedInitializers.filter { it.initMode() == InitMode.SERIAL }
-                val parallelInitializers =
-                    sortedInitializers.filter { it.initMode() == InitMode.PARALLEL }
-
-                // 2. Execute all serial tasks. A failure here will throw an exception and terminate the process immediately.
-                // 2. 执行所有串行任务。如果串行任务失败，将立即抛出异常并终止整个启动流程。
-                for (initializer in serialInitializers) {
-                    try {
-                        withContext(dispatchers.executeDispatcher) {
-                            execute(initializer)
-                        }
-                    } catch (e: Throwable) {
-                        exceptions.add(StartupException(initializer::class, e))
-                        //抛出以终止后续所有任务
-                        throw e
-                    }
-                }
-
                 // 3. 按依赖关系执行所有并行任务。
                 //    使用 supervisorScope 隔离并行任务，一个任务的失败不会取消其他任务。
                 supervisorScope {
                     val parallelJobs = mutableMapOf<KClass<out Initializer<*>>, Deferred<*>>()
 
-                    for (initializer in parallelInitializers) {
+                    for (initializer in sortedInitializers) {
                         val job = async(dispatchers.executeDispatcher) {
                             // Before starting the current task, wait for its dependencies to complete.
                             // 在启动当前任务前，先等待其所有依赖项完成。
@@ -291,26 +271,17 @@ open class Startup(
         val initializerMap = initializers.associateBy { it::class }
 
         // --- Stage 1: Validation ---
-        // --- 阶段一：执行所有验证 ---
+        // --- 阶段一：创建节点,交验依赖是否存在---
         for (initializer in initializers) {
             // 1. 初始化每个节点的图结构和入度
             inDegree[initializer::class] = 0
             graph[initializer::class] = mutableListOf()
 
             // 2. 遍历其所有依赖项，进行验证
-            if (initializer.initMode() == InitMode.SERIAL) {
-                for (dependencyClass in initializer.dependencies()) {
-                    // 验证 A: 依赖项是否已注册？
-                    val dependency = initializerMap[dependencyClass]
-                        ?: throw IllegalStateException("Dependency ${dependencyClass.simpleName} for ${initializer::class.simpleName} not found in the initializers list.")
-
-                    // 验证 B: 当前任务是串行时，其依赖项是否也是串行？
-                    if (initializer.initMode() == InitMode.SERIAL && dependency.initMode() == InitMode.PARALLEL) {
-                        throw IllegalStateException(
-                            "Illegal dependency: Serial initializer '${initializer::class.simpleName}' cannot depend on Parallel initializer '${dependency::class.simpleName}'."
-                        )
-                    }
-                }
+            for (dependencyClass in initializer.dependencies()) {
+                // 验证 A: 依赖项是否已注册？
+                initializerMap[dependencyClass]
+                    ?: throw IllegalStateException("Dependency ${dependencyClass.simpleName} for ${initializer::class.simpleName} not found in the initializers list.")
             }
         }
 
@@ -387,7 +358,7 @@ open class Startup(
      * 打印所有任务的拓扑依赖图到控制台。
      * 格式:
      * ```txt
-     * [执行模式] TaskName
+     * TaskName
      *   ├─ Dependency1
      *   └─ Dependency2
      * ```
@@ -399,15 +370,13 @@ open class Startup(
         val logContent = StringBuilder("\n--- Startup Coroutine Dependency Graph ---\n\n")
 
         sortedInitializers.forEach { initializer ->
-            val mode = "[${initializer.initMode()}]".padEnd(10, ' ')
-            logContent.append("$mode${initializer::class.simpleName}\n")
+            logContent.append("${initializer::class.simpleName}\n")
 
             val dependencies = initializer.dependencies()
             if (dependencies.isNotEmpty()) {
                 dependencies.forEachIndexed { index, depClass ->
                     val prefix = if (index == dependencies.size - 1) "  └─ " else "  ├─ "
-                    val depMode = initializerMap[depClass]?.initMode() ?: "UNKNOWN"
-                    logContent.append("$prefix${depClass.simpleName} [$depMode]\n")
+                    logContent.append("$prefix${depClass.simpleName}\n")
                 }
             }
         }

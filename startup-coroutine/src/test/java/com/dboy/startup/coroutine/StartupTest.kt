@@ -91,7 +91,7 @@ class StartupTest {
         // 每个测试开始前重置单例对象的状态
         listOf(
             S1, S2, S3, P1, P2, PA, PB, PC, PD, CycleA, CycleB, CycleC,
-            IllegalDepSerial, P_MixC, FailingParallelA, DependentOnFailure, NormalParallelB
+            P_MixC, FailingParallelA, DependentOnFailure, NormalParallelB
         ).forEach {
             it.callCount.set(0)
             it.executedAt = 0L
@@ -389,11 +389,12 @@ class StartupTest {
             dispatchers = createTestDispatchers(),
             initializers = listOf(CycleA, CycleB, CycleC),
             onResult = {
-                when(it){
-                    is StartupResult.Failure ->{
+                when (it) {
+                    is StartupResult.Failure -> {
                         println("测试 7: onError 回调被触发，错误: ${it.exceptions.firstOrNull()?.exception?.message}")
                         capturedThrowable = it.exceptions.first().exception
                     }
+
                     StartupResult.Success -> {
                         fail("任务不可能全部Success")
                     }
@@ -416,44 +417,6 @@ class StartupTest {
     }
 
     /**
-     * 测试场景 8: 验证当一个串行任务非法地依赖于一个并行任务时，框架能正确抛出 `IllegalStateException`。
-     */
-    @Test
-    fun `8 - 串行任务依赖了并行任务测试`() = runTest {
-        println("---------- 测试 8: 串行非法依赖并行异常 开始 ----------")
-        var capturedThrowable: Throwable? = null
-        val startup = Startup(
-            context = mockContext,
-            dispatchers = createTestDispatchers(),
-            initializers = listOf(PA, IllegalDepSerial),
-            onResult = {
-                when(it){
-                    is StartupResult.Failure -> {
-                        println("测试 8: onError 回调被触发，错误: ${it.exceptions.firstOrNull()?.exception?.message}")
-                        capturedThrowable = it.exceptions.first().exception
-                    }
-                    StartupResult.Success -> {
-                         fail("任务不可能Success")
-                    }
-                }
-            },
-        )
-
-        println("测试 8: 调用 startup.start()")
-        startup.start()
-        println("测试 8: 调用 advanceUntilIdle() 以触发 onError 回调...")
-        advanceUntilIdle()
-        println("测试 8: advanceUntilIdle() 执行完毕")
-
-
-        println("测试 8: 开始断言...")
-        Assert.assertNotNull(capturedThrowable)
-        assertTrue(capturedThrowable is IllegalStateException)
-        assertTrue(capturedThrowable?.message?.contains("Illegal dependency") == true)
-        println("---------- 测试 8: 成功捕获预期异常，结束 ----------\n")
-    }
-
-    /**
      * 测试场景 9: 验证一个并行任务能正确地等待一个混合的依赖列表（包含串行和并行任务）。
      */
     @Test
@@ -469,10 +432,11 @@ class StartupTest {
             dispatchers = createTestDispatchers(),
             initializers = listOf(s1, pa, pMixC),
             onResult = {
-                when(it){
+                when (it) {
                     is StartupResult.Failure -> {
-                         fail("测试 9 不应该出现错误: ${it.exceptions}")
+                        fail("测试 9 不应该出现错误: ${it.exceptions}")
                     }
+
                     StartupResult.Success -> {
                         println("测试 9: Success 回调被触发")
                         completed = true
@@ -511,13 +475,14 @@ class StartupTest {
             dispatchers = createTestDispatchers(),
             initializers = listOf(FailingParallelA, DependentOnFailure),
             onResult = {
-                when(it){
+                when (it) {
                     is StartupResult.Failure -> {
                         println("测试 10: onError 回调被触发，错误数量: ${it.exceptions.size}")
                         capturedErrors = it.exceptions.map { item -> item.exception }
                     }
+
                     StartupResult.Success -> {
-                         fail("任务不可能全部Success")
+                        fail("任务不可能全部Success")
                     }
                 }
             },
@@ -555,11 +520,12 @@ class StartupTest {
             dispatchers = createTestDispatchers(),
             initializers = listOf(cancellableTask),
             onResult = {
-                when(it){
+                when (it) {
                     is StartupResult.Failure -> {
                         println("测试 11: onError 回调被触发，错误: ${it.exceptions.firstOrNull()}")
                         capturedErrors = it.exceptions.map { item -> item.exception }
                     }
+
                     StartupResult.Success -> {
                         fail("任务不可能Success")
                     }
@@ -613,14 +579,14 @@ class StartupTest {
             dispatchers = createTestDispatchers(),
             initializers = listOf(failingTask, normalTask),
             onResult = {
-                when(it){
+                when (it) {
                     is StartupResult.Failure -> {
                         println("测试 12: onError 回调被触发，错误数量: ${it.exceptions.size}")
                         capturedErrors = it.exceptions.map { item -> item.exception }
                     }
 
                     StartupResult.Success -> {
-                         fail("任务不可能全部Success")
+                        fail("任务不可能全部Success")
                     }
                 }
             },
@@ -670,10 +636,11 @@ class StartupTest {
             dispatchers = createTestDispatchers(execute = mainDispatcherRule.testDispatcher),
             initializers = listOf(switcher, resultReader),
             onResult = {
-                when(it){
+                when (it) {
                     is StartupResult.Failure -> {
                         fail("任务不应该有异常: ${it.exceptions.firstOrNull()?.exception?.message}")
                     }
+
                     StartupResult.Success -> {
                         println("测试 13: Success 回调被触发")
                         completed = true
