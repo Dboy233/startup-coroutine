@@ -24,7 +24,6 @@
     *   [第二步：配置并启动框架](#第二步配置并启动框架)
 *   [🧩 核心 API 解析](#-核心-api-解析)
     *   [`Initializer<T>`](#initializert)
-    *   [`InitMode`](#initmode)
     *   [`Startup`](#startup)
     *   [`DependenciesProvider`](#dependenciesprovider)
 *   [🔧 高级用法](#-高级用法)
@@ -52,9 +51,7 @@
 
 *   **`init(context, provider)`**: 包含实际的初始化逻辑。这是一个挂起函数，可在`Startup`中指定其工作线程,也可在内部自行切换。
 *   **`dependencies()`**: (可选) 声明当前任务所依赖的其他 `Initializer` 任务。
-*   **`initMode()`**: (可选) 定义执行模式（串行或并行），默认为 `InitMode.SERIAL`。
 
-> ❌ 串行任务不可以依赖并行任务
 
 **示例：定义两个任务**
 
@@ -76,9 +73,6 @@ class AnalyticsInitializer : Initializer<AnalyticsSDK>() {
         return result
     }
 
-    // 将此任务设置为并行模式，以便它可以与其他(不依赖他的)任务并发执行
-    override fun initMode(): InitMode = InitMode.PARALLEL
-
 }
 
 // AdsInitializer.kt
@@ -98,9 +92,6 @@ class AdsInitializer : Initializer<Unit>() {
     override fun dependencies(): List<KClass<out Initializer<*>>> {
         return listOf(AnalyticsInitializer::class)
     }
-
-    // 框架明确规定: 串行任务不可以依赖并行任务,并行任务可以依赖多个串行或并行任务
-    override fun initMode(): InitMode = InitMode.PARALLEL
 
 }
 
@@ -151,14 +142,6 @@ class MyApplication : Application() {
 
 *   `init(context: Context, provider: DependenciesProvider): T`: 您的初始化逻辑所在地。这是一个默认在 **主线程** 执行的挂起函数。**任何耗时操作都必须使用 `withContext` 切换到后台线程**。
 *   `dependencies(): List<KClass<out Initializer<*>>>`: 指定该任务所依赖的其他任务。
-*   `initMode(): InitMode`: 决定任务的执行顺序关系（串行或并行），**不决定执行线程**。
-
-### `InitMode`
-
-一个定义 `Initializer` 执行顺序模式的枚举。
-
-*   `SERIAL`: 任务将按其依赖关系，串行执行。
-*   `PARALLEL`: 任务在依赖满足后，将有资格与其他并行任务并发执行。并发是通过协程的非阻塞挂起机制实现的。
 
 ### `Startup`
 
@@ -183,9 +166,6 @@ class MyApplication : Application() {
 ### 循环依赖检测
 
 框架在启动时会自动进行拓扑排序，如果检测到初始化任务之间存在循环依赖，它会抛出 `IllegalStateException`，从而防止在运行时出现死锁。
-
-此外，框架还包含一个重要的验证规则：**串行任务不能依赖于并行任务**。这是因为串行任务需要按严格顺序执行，而并行任务的完成时机不确定，这种依赖关系会破坏执行顺序的确定性并可能导致难以预料的行为。
-
 
 ## 🆚 与 Jetpack App Startup 对比
 
@@ -227,3 +207,78 @@ Jetpack App Startup 是一个优秀的库，它通过 `ContentProvider` 实现�
 ### 致谢与声明
 
 本项目的开发过程得到了 AI 编程助手的支持。部分代码、文档和优化建议在 AI(Gemini) 的协助下完成，并由作者审查和整合。
+
+## 🔧 测试日志
+
+```txt
+
+---------------------------- PROCESS ENDED (20435) for package com.dboy.startup_coroutine ----------------------------
+---------------------------- PROCESS STARTED (20540) for package com.dboy.startup_coroutine ----------------------------
+StartupJetpack           D  ============== StartupJetpack 启动流程开始 ==============
+StartupJetpack           D  1. [BugMonitor] (main) 开始初始化Bug统计平台...
+StartupJetpack           D  1. [BugMonitor] (main) ✅ Bug统计平台初始化完成。
+StartupJetpack           D  2. [Utils] (main) 开始初始化通用工具库...
+StartupJetpack           D  2.1 [Utils] (main) ...日志、网络、统计、EventBus等工具OK
+StartupJetpack           D  2. [Utils] (main) ✅ 通用工具库全部初始化完成。
+StartupJetpack           D  3. [Database] (main) 开始初始化数据库...
+StartupJetpack           D  3. [Database] (main) ...检测到数据库需要升级，执行升级操作...
+StartupJetpack           D  3. [Database] (main) ✅ 数据库初始化完成。
+StartupJetpack           D  4. [Config] (main) 开始从网络获取配置信息...
+StartupJetpack           D  4. [Config] (main) ✅ 配置信息获取成功。
+StartupJetpack           D  5. [Ads] (main) 开始初始化广告平台...
+StartupJetpack           D  5. [Ads] (main) ...使用配置: {provider=AwesomeAds, timeout=3000}
+StartupJetpack           D  5. [Ads] (main) ✅ 广告平台初始化完成。
+StartupJetpack           D  ============== StartupJetpack 启动流程成功结束==============
+StartupJetpack           D  StartupJetpack 总共耗时: 1214
+StartupJetpack           D  - JectpacjBugMonitorInitializer   | 101
+StartupJetpack           D  - JetcpackCommonUtilsInitializer    | 502
+StartupJetpack           D  - JetcPackDatabaseInitializer | 305
+StartupJetpack           D  - JetpackConfigInitializer    | 101 ms
+StartupJetpack           D  - JectpackAdsPlatformInitializer    | 201ms
+StartupCoroutine         D  ============== 启动流程开始 ==============
+StartupCoroutine         D  startup.start() 已调用，主线程继续执行其他任务...
+StartupCoroutine         D  --- Startup Coroutine Dependency Graph ---
+                            
+                            BugMonitorInitializer
+                            CommonUtilsInitializer
+                            DatabaseInitializer
+                              └─ CommonUtilsInitializer
+                            ConfigInitializer
+                              ├─ CommonUtilsInitializer
+                              └─ DatabaseInitializer
+                            AdsPlatformInitializer
+                              └─ ConfigInitializer
+                            
+                            ----------------------------------------
+StartupCoroutine         D  1. [BugMonitor] (main) 开始初始化Bug统计平台...
+StartupCoroutine         D  2. [Utils] (main) 开始初始化通用工具库...
+StartupCoroutine         D  1. [BugMonitor] (main) ✅ Bug统计平台初始化完成。
+StartupCoroutine         D  2.1 [Utils] (main) ...日志、网络、统计、EventBus等工具OK
+StartupCoroutine         D  2. [Utils] (main) ✅ 通用工具库全部初始化完成。
+StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-1) 开始初始化数据库...
+StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-1) ...检测到数据库需要升级，执行升级操作...
+StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-1) ✅ 数据库初始化完成。
+StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-1) 开始从网络获取配置信息...
+StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-1) ✅ 配置信息获取成功: AppConfig(adConfig={provider=AwesomeAds, timeout=3000}, featureFlags=[new_checkout_flow, enable_dark_mode])
+StartupCoroutine         D  5. [Ads] (main) 开始初始化广告平台...
+StartupCoroutine         D  5. [Ads] (main) ...使用配置: {provider=AwesomeAds, timeout=3000}
+StartupCoroutine         D  5. [Ads] (main) ✅ 广告平台初始化完成。
+StartupCoroutine         I  --- Startup Coroutine Performance Summary ---
+                            
+                            >> Total Time: 1251ms  |  Status: SUCCESS
+                            >> Dispatchers Mode: Default
+                            
+                            >> Individual Task Durations:
+                               - CommonUtilsInitializer  |  504ms  |  Thread: main
+                               - DatabaseInitializer     |  306ms  |  Thread: main
+                               - AdsPlatformInitializer  |  202ms  |  Thread: main
+                               - BugMonitorInitializer   |  101ms  |  Thread: main
+                               - ConfigInitializer       |  56ms   |  Thread: main
+                            >> Task time is sum  : 1169 ms
+                            
+                            -------------------------------------------
+StartupCoroutine         D  ============== 启动流程成功结束==============
+
+
+```
+
