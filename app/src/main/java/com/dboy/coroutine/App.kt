@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.startup.AppInitializer
 import com.dboy.startup.coroutine.Startup
 import com.dboy.startup.coroutine.model.StartupResult
+import kotlin.collections.forEach
 import kotlin.system.measureTimeMillis
 
 /**
@@ -31,15 +32,18 @@ class App : Application() {
                 initializeComponent(JectpackAdsPlatformInitializer::class.java)
             }
         }
-        Log.d(
-            "StartupJetpack",
-            "============== StartupJetpack 启动流程成功结束=============="
-        )
-        Log.d("StartupJetpack", "StartupJetpack 总共耗时: $time")
 
+        Log.i("StartupJetpack", "==============StartupJetpack 用时统计==============")
         timeStatistics.forEach {
-            Log.d("StartupJetpack", it)
+            Log.i("StartupJetpack", it)
         }
+
+        Log.i("StartupJetpack", "StartupJetpack 总共耗时: $time")
+
+        Log.i(
+            "StartupJetpack",
+            "============== StartupJetpack 启动流程成功结束==============\n.\n."
+        )
     }
 
     private fun initStartupCoroutine() {
