@@ -41,3 +41,17 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
 }
+
+publishing {
+    publications {
+        register<MavenPublication>("release") {
+            groupId = "com.github.Dboy233"
+            artifactId = "startup-coroutine"
+            version = "0.1.0-deta"
+
+            afterEvaluate {
+                from(components["release"])
+            }
+        }
+    }
+}
