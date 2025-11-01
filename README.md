@@ -19,6 +19,9 @@
 ## 📖 目录
 
 *   [✨ 核心特性](#-核心特性)
+*   [📥 下载与集成](#-下载与集成)
+    *   [第一步：添加 JitPack 仓库](#第一步添加-jitpack-仓库)
+    *   [第二步：添加依赖](#第二步添加依赖)
 *   [🚀 快速上手](#-快速上手)
     *   [第一步：定义初始化任务](#第一步定义初始化任务)
     *   [第二步：配置并启动框架](#第二步配置并启动框架)
@@ -42,6 +45,43 @@
 *   **📊 统一结果回调**: 通过 `onResult` 回调统一处理成功或失败的最终状态。
 *   **🤚 可取消**: 支持随时安全地取消整个启动流程，并正确处理相关的资源释放。
 *   **🍃 轻量级**: 基于 Kotlin 协程，核心逻辑简洁，对项目侵入性小。
+
+
+
+## 📥 下载与集成
+
+<a href="https://jitpack.io/#Dboy233/startup-coroutine"><img src="https://jitpack.io/v/Dboy233/startup-coroutine.svg"></a>
+
+### 第一步：添加 JitPack 仓库
+
+在您的根项目 `settings.gradle.kts` (或 `settings.gradle`) 文件中，添加 JitPack 仓库地址。
+
+```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { setUrl("https://jitpack.io") } // <-- 添加这一行
+    }
+}
+```
+
+### 第二步：添加依赖
+
+在您需要使用此框架的模块（通常是 `app` 模块）的 `build.gradle.kts` 文件中，添加依赖项。请将 `Tag` 替换为最新的版本号。
+
+```kotlin
+// app/build.gradle.kts
+dependencies {
+    // ... 其他依赖
+    implementation("com.github.Dboy233:startup-coroutine:Tag")
+}
+```
+
+您可以通过上方的版本角标查看最新的版本号。
+
 
 ## 🚀 快速上手
 
