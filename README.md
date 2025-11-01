@@ -235,6 +235,11 @@ StartupJetpack           D  - JetcpackCommonUtilsInitializer    | 502
 StartupJetpack           D  - JetcPackDatabaseInitializer | 305
 StartupJetpack           D  - JetpackConfigInitializer    | 101 ms
 StartupJetpack           D  - JectpackAdsPlatformInitializer    | 201ms
+
+//上方是Jetpack App Startup 启动测试。
+//下方是startup-coroutine的启动测试，相同的任务。
+
+
 StartupCoroutine         D  ============== 启动流程开始 ==============
 StartupCoroutine         D  startup.start() 已调用，主线程继续执行其他任务...
 StartupCoroutine         D  --- Startup Coroutine Dependency Graph ---
@@ -281,4 +286,7 @@ StartupCoroutine         D  ============== 启动流程成功结束=============
 
 
 ```
+
+
+
 
