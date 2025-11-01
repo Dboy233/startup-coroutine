@@ -53,7 +53,7 @@ object JetpackStartupResults {
 
 
 // --- 任务1: Bug统计平台初始化 (高优先级, 无依赖) ---
-class JectpacjBugMonitorInitializer : Initializer<Unit> {
+class JetpackBugMonitorInitializer : Initializer<Unit> {
     override fun create(context: Context) {
         val time = measureTimeMillis {
             Log.d(
@@ -75,7 +75,7 @@ class JectpacjBugMonitorInitializer : Initializer<Unit> {
 
 // --- 任务2: 通用工具类初始化 (无依赖) ---
 
-class JetcpackCommonUtilsInitializer : Initializer<Unit> {
+class JetpackCommonUtilsInitializer : Initializer<Unit> {
     override fun create(context: Context) {
         val time = measureTimeMillis {
             Log.d(
@@ -101,7 +101,7 @@ class JetcpackCommonUtilsInitializer : Initializer<Unit> {
 
 // --- 任务3: 数据库初始化 (依赖工具库) ---
 
-class JetcPackDatabaseInitializer : Initializer<Boolean> {
+class JetPackDatabaseInitializer : Initializer<Boolean> {
     override fun create(context: Context): Boolean {
         val time = measureTimeMillis {
             Log.d(
@@ -123,7 +123,7 @@ class JetcPackDatabaseInitializer : Initializer<Boolean> {
     }
 
     override fun dependencies(): List<Class<out Initializer<*>>> =
-        listOf(JetcpackCommonUtilsInitializer::class.java)
+        listOf(JetpackCommonUtilsInitializer::class.java)
 }
 
 
@@ -161,14 +161,14 @@ class JetpackConfigInitializer : Initializer<JetPackAppConfig> {
     }
 
     override fun dependencies(): List<Class<out Initializer<*>>> = listOf(
-        JetcpackCommonUtilsInitializer::class.java, JetcPackDatabaseInitializer::class.java
+        JetpackCommonUtilsInitializer::class.java, JetPackDatabaseInitializer::class.java
     )
 }
 
 
 // --- 任务5: 广告平台初始化 (依赖配置信息) ---
 
-class JectpackAdsPlatformInitializer : Initializer<Unit> {
+class JetpackAdsPlatformInitializer : Initializer<Unit> {
     override fun create(context: Context) {
         val time = measureTimeMillis {// 这个任务是依赖链的末端，通常在主线程执行SDK的初始化方法
             Log.d(

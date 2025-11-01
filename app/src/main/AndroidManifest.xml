@@ -34,15 +34,15 @@
               这会告诉构建工具，我们计划手动调用它们，从而避免 [EnsureInitializerMetadata] Lint 错误。
             -->
             <meta-data
-                android:name="com.dboy.coroutine.JectpacjBugMonitorInitializer"
+                android:name="com.dboy.coroutine.JetpackBugMonitorInitializer"
                 tools:node="remove" />
 
             <meta-data
-                android:name="com.dboy.coroutine.JetcpackCommonUtilsInitializer"
+                android:name="com.dboy.coroutine.JetpackCommonUtilsInitializer"
                 tools:node="remove" />
 
             <meta-data
-                android:name="com.dboy.coroutine.JetcPackDatabaseInitializer"
+                android:name="com.dboy.coroutine.JetPackDatabaseInitializer"
                 tools:node="remove" />
 
             <meta-data
@@ -50,7 +50,7 @@
                 tools:node="remove" />
 
             <meta-data
-                android:name="com.dboy.coroutine.JectpackAdsPlatformInitializer"
+                android:name="com.dboy.coroutine.JetpackAdsPlatformInitializer"
                 tools:node="remove" />
 
         </provider>

@@ -28,8 +28,8 @@ class App : Application() {
         val time = measureTimeMillis {
             //需要自己弄明白依赖关系,只需要初始化两个末端任务即可,其内部会自动初始化他们依赖的任务
             AppInitializer.getInstance(this).apply {
-                initializeComponent(JectpacjBugMonitorInitializer::class.java)
-                initializeComponent(JectpackAdsPlatformInitializer::class.java)
+                initializeComponent(JetpackBugMonitorInitializer::class.java)
+                initializeComponent(JetpackAdsPlatformInitializer::class.java)
             }
         }
 

@@ -33,6 +33,9 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
+    lint {
+        baseline = file("lint-baseline.xml")
+    }
 }
 
 dependencies {
@@ -47,7 +50,7 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     implementation(libs.kotlinx.coroutines.android)
 
+    implementation(libs.androidx.startup.runtime)
+    
     implementation(project(":startup-coroutine"))
-
-    implementation("androidx.startup:startup-runtime:1.2.0")
 }
