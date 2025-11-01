@@ -50,8 +50,6 @@
 
 ## 📥 下载与集成
 
-<a href="https://jitpack.io/#Dboy233/startup-coroutine"><img src="https://jitpack.io/v/Dboy233/startup-coroutine.svg"></a>
-
 ### 第一步：添加 JitPack 仓库
 
 在您的根项目 `settings.gradle.kts` (或 `settings.gradle`) 文件中，添加 JitPack 仓库地址。
@@ -69,6 +67,8 @@ dependencyResolutionManagement {
 ```
 
 ### 第二步：添加依赖
+
+<a href="https://jitpack.io/#Dboy233/startup-coroutine"><img src="https://jitpack.io/v/Dboy233/startup-coroutine.svg"></a>
 
 在您需要使用此框架的模块（通常是 `app` 模块）的 `build.gradle.kts` 文件中，添加依赖项。请将 `Tag` 替换为最新的版本号。
 
