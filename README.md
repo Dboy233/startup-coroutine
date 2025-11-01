@@ -210,10 +210,11 @@ Jetpack App Startup 是一个优秀的库，它通过 `ContentProvider` 实现�
 
 ## 🔧 测试日志
 
-```txt
 
----------------------------- PROCESS ENDED (20435) for package com.dboy.startup_coroutine ----------------------------
----------------------------- PROCESS STARTED (20540) for package com.dboy.startup_coroutine ----------------------------
+> 首先使用jetpack的app startup框架启动流程.
+
+
+```txt
 StartupJetpack           D  ============== StartupJetpack 启动流程开始 ==============
 StartupJetpack           D  1. [BugMonitor] (main) 开始初始化Bug统计平台...
 StartupJetpack           D  1. [BugMonitor] (main) ✅ Bug统计平台初始化完成。
@@ -228,18 +229,20 @@ StartupJetpack           D  4. [Config] (main) ✅ 配置信息获取成功。
 StartupJetpack           D  5. [Ads] (main) 开始初始化广告平台...
 StartupJetpack           D  5. [Ads] (main) ...使用配置: {provider=AwesomeAds, timeout=3000}
 StartupJetpack           D  5. [Ads] (main) ✅ 广告平台初始化完成。
-StartupJetpack           D  ============== StartupJetpack 启动流程成功结束==============
-StartupJetpack           D  StartupJetpack 总共耗时: 1214
-StartupJetpack           D  - JectpacjBugMonitorInitializer   | 101
-StartupJetpack           D  - JetcpackCommonUtilsInitializer    | 502
-StartupJetpack           D  - JetcPackDatabaseInitializer | 305
-StartupJetpack           D  - JetpackConfigInitializer    | 101 ms
-StartupJetpack           D  - JectpackAdsPlatformInitializer    | 201ms
+StartupJetpack           I  ==============StartupJetpack 用时统计==============
+StartupJetpack           I  - JectpacjBugMonitorInitializer   | 103
+StartupJetpack           I  - JetcpackCommonUtilsInitializer    | 500
+StartupJetpack           I  - JetcPackDatabaseInitializer | 301
+StartupJetpack           I  - JetpackConfigInitializer    | 82 ms
+StartupJetpack           I  - JectpackAdsPlatformInitializer    | 202ms
+StartupJetpack           I  StartupJetpack 总共耗时: 1191
+StartupJetpack           I  ============== StartupJetpack 启动流程成功结束==============
+                            
+```
 
-//上方是Jetpack App Startup 启动测试。
-//下方是startup-coroutine的启动测试，相同的任务。
+> 使用startup-coroutine启动流程.
 
-
+```txt
 StartupCoroutine         D  ============== 启动流程开始 ==============
 StartupCoroutine         D  startup.start() 已调用，主线程继续执行其他任务...
 StartupCoroutine         D  --- Startup Coroutine Dependency Graph ---
@@ -260,29 +263,33 @@ StartupCoroutine         D  2. [Utils] (main) 开始初始化通用工具库...
 StartupCoroutine         D  1. [BugMonitor] (main) ✅ Bug统计平台初始化完成。
 StartupCoroutine         D  2.1 [Utils] (main) ...日志、网络、统计、EventBus等工具OK
 StartupCoroutine         D  2. [Utils] (main) ✅ 通用工具库全部初始化完成。
-StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-1) 开始初始化数据库...
-StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-1) ...检测到数据库需要升级，执行升级操作...
-StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-1) ✅ 数据库初始化完成。
-StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-1) 开始从网络获取配置信息...
-StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-1) ✅ 配置信息获取成功: AppConfig(adConfig={provider=AwesomeAds, timeout=3000}, featureFlags=[new_checkout_flow, enable_dark_mode])
+StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-3) 开始初始化数据库...
+StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-3) ...检测到数据库需要升级，执行升级操作...
+StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-3) ✅ 数据库初始化完成。
+StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-4) 开始从网络获取配置信息...
+StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-4) ✅ 配置信息获取成功: AppConfig(adConfig={provider=AwesomeAds, timeout=3000}, featureFlags=[new_checkout_flow, enable_dark_mode])
 StartupCoroutine         D  5. [Ads] (main) 开始初始化广告平台...
 StartupCoroutine         D  5. [Ads] (main) ...使用配置: {provider=AwesomeAds, timeout=3000}
 StartupCoroutine         D  5. [Ads] (main) ✅ 广告平台初始化完成。
 StartupCoroutine         I  --- Startup Coroutine Performance Summary ---
                             
-                            >> Total Time: 1251ms  |  Status: SUCCESS
+                            >> Total Time: 1853ms  |  Status: SUCCESS
                             >> Dispatchers Mode: Default
                             
                             >> Individual Task Durations:
-                               - CommonUtilsInitializer  |  504ms  |  Thread: main
-                               - DatabaseInitializer     |  306ms  |  Thread: main
+                               - CommonUtilsInitializer  |  502ms  |  Thread: main
+                               - DatabaseInitializer     |  319ms  |  Thread: main
+                               - BugMonitorInitializer   |  307ms  |  Thread: main
                                - AdsPlatformInitializer  |  202ms  |  Thread: main
-                               - BugMonitorInitializer   |  101ms  |  Thread: main
-                               - ConfigInitializer       |  56ms   |  Thread: main
-                            >> Task time is sum  : 1169 ms
+                               - ConfigInitializer       |  53ms   |  Thread: main
+                            >> Task time is sum  : 1383 ms
                             
                             -------------------------------------------
 StartupCoroutine         D  ============== 启动流程成功结束==============
+
+
+
+```
 
 
 ```
