@@ -21,6 +21,40 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+
+            <!--
+              使用 tools:node="remove" 来显式地禁用以下 Initializer 的自动初始化。
+              这会告诉构建工具，我们计划手动调用它们，从而避免 [EnsureInitializerMetadata] Lint 错误。
+            -->
+            <meta-data
+                android:name="com.dboy.coroutine.JectpacjBugMonitorInitializer"
+                tools:node="remove" />
+
+            <meta-data
+                android:name="com.dboy.coroutine.JetcpackCommonUtilsInitializer"
+                tools:node="remove" />
+
+            <meta-data
+                android:name="com.dboy.coroutine.JetcPackDatabaseInitializer"
+                tools:node="remove" />
+
+            <meta-data
+                android:name="com.dboy.coroutine.JetpackConfigInitializer"
+                tools:node="remove" />
+
+            <meta-data
+                android:name="com.dboy.coroutine.JectpackAdsPlatformInitializer"
+                tools:node="remove" />
+
+        </provider>
+
     </application>
 
 </manifest>
