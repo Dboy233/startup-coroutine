@@ -6,6 +6,8 @@
     <a href="#-核心特性"><strong>探索特性 »</strong></a>
     <br>
     <br>
+    <a href="README_EN.md">English</a>
+    ·
     <a href="https://github.com/Dboy233/startup-coroutine/issues">报告 Bug</a>
     ·
     <a href="https://github.com/Dboy233/startup-coroutine/issues">提出新特性</a>

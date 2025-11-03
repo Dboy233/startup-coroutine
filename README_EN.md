@@ -1,4 +1,3 @@
-```markdown
 <div align="center">
   <h1 align="center">Startup-Coroutine</h1>
   <p align="center">
@@ -36,6 +35,7 @@
 *   [🆚 Comparison with Jetpack App Startup](#-comparison-with-jetpack-app-startup)
 *   [🤝 Contributing](#-contributing)
 *   [📄 License](#-license)
+*   [🔧 Test Logs](#-test-logs)
 
 ## ✨ Core Features
 
