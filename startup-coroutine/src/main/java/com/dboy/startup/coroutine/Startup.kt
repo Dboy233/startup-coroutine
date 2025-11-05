@@ -68,30 +68,23 @@ import kotlin.system.measureTimeMillis
  * )
  * startup.start()
  */
-open class Startup(
+open class Startup private constructor(
     private val context: Context,
     private val config: StartupConfig,
     private val initializers: List<Initializer<*>>,
 ) : DependenciesProvider {
 
-    /**
-     * @param context Android Application Context。
-     * @param isDebug 在debug模式下会打印所有任务拓扑关系图和任务耗时清单.
-     * @param dispatchers 协程调度器配置，用于定义启动、执行和回调的线程模型,默认为 [DefaultDispatchers]。
-     * @param initializers 所有需要执行的 [Initializer] 任务列表。
-     * @param onResult 所有任务流程执行完毕后的统一回调。
-     *                 该回调在所有可执行的任务（包括成功和失败的）都结束后触发。
-     *                 您可以通过检查其参数 [StartupResult] 的类型来处理成功或失败的情况。
-     *                 - **StartupResult.Success**: 表示所有任务均成功完成。
-     *                 - **StartupResult.Failure**: 表示至少有一个任务失败，其中包含了所有失败任务的详细信息列表。
-     */
-    constructor(
-        context: Context,
-        isDebug: Boolean = false,
-        dispatchers: StartupDispatchers = DefaultDispatchers,
-        initializers: List<Initializer<*>>,
-        onResult: ((StartupResult) -> Unit)? = null
-    ) : this(context, StartupConfig(isDebug, dispatchers, onResult), initializers)
+
+    constructor(builder: Builder) :
+            this(
+                builder.context,
+                StartupConfig(
+                    isDebug = builder.isDebug,
+                    dispatchers = builder.dispatchers,
+                    onResult = builder.onResult
+                ),
+                builder.initializers
+            )
 
 
     // Stores the results of each initializer.
@@ -349,5 +342,39 @@ open class Startup(
         }
     }
 
+
+    @Suppress("unused")
+    class Builder(val context: Context) {
+        internal var isDebug: Boolean = false
+            private set
+        internal var dispatchers: StartupDispatchers = DefaultDispatchers
+            private set
+        internal var initializers: MutableList<Initializer<*>> = mutableListOf()
+            private set
+        internal var onResult: ((StartupResult) -> Unit)? = null
+            private set
+
+        fun setDebugMode(isDebug: Boolean): Builder = apply { this.isDebug = isDebug }
+
+        fun setDispatchers(dispatchers: StartupDispatchers): Builder =
+            apply { this.dispatchers = dispatchers }
+
+        fun addInitializer(initializer: Initializer<*>): Builder =
+            apply { this.initializers.add(initializer) }
+
+        fun addInitializers(initializers: List<Initializer<*>>): Builder =
+            apply { this.initializers.addAll(initializers) }
+
+        fun onResult(callback: (StartupResult) -> Unit): Builder =
+            apply { this.onResult = callback }
+
+        fun build(): Startup {
+            // 在 build() 时可以进行一些预检查
+            if (initializers.isEmpty()) {
+                Log.w("Startup", "No initializers added to the startup process.")
+            }
+            return Startup(this)
+        }
+    }
 
 }

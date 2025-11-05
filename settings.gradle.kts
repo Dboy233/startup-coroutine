@@ -26,3 +26,5 @@ dependencyResolutionManagement {
 rootProject.name = "startup-coroutine"
 include(":app")
 include(":startup-coroutine")
+include(":startup-coroutine-api")
+include(":startup-coroutine-processor")
