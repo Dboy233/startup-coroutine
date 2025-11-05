@@ -45,15 +45,8 @@ import kotlin.system.measureTimeMillis
  * - **可取消**: 可以随时安全地取消整个启动流程。
  *
  * @param context Android Application Context。
- * @param isDebug 在debug模式下会打印所有任务拓扑关系图和任务耗时清单.
- * @param dispatchers 协程调度器配置，用于定义启动、执行和回调的线程模型,默认为 [DefaultDispatchers]。
+ * @param config [StartupConfig]
  * @param initializers 所有需要执行的 [Initializer] 任务列表。
- * @param onResult 所有任务流程执行完毕后的统一回调。
- *                 该回调在所有可执行的任务（包括成功和失败的）都结束后触发。
- *                 您可以通过检查其参数 [StartupResult] 的类型来处理成功或失败的情况。
- *                 - **StartupResult.Success**: 表示所有任务均成功完成。
- *                 - **StartupResult.Failure**: 表示至少有一个任务失败，其中包含了所有失败任务的详细信息列表。
-
  *
  * @sample
  * // class AnalyticsInitializer : Initializer<AnalyticsSDK>() { ... }
@@ -77,11 +70,29 @@ import kotlin.system.measureTimeMillis
  */
 open class Startup(
     private val context: Context,
-    private val isDebug: Boolean = false,
-    private val dispatchers: StartupDispatchers = DefaultDispatchers,
+    private val config: StartupConfig,
     private val initializers: List<Initializer<*>>,
-    private val onResult: ((StartupResult) -> Unit)? = null
 ) : DependenciesProvider {
+
+    /**
+     * @param context Android Application Context。
+     * @param isDebug 在debug模式下会打印所有任务拓扑关系图和任务耗时清单.
+     * @param dispatchers 协程调度器配置，用于定义启动、执行和回调的线程模型,默认为 [DefaultDispatchers]。
+     * @param initializers 所有需要执行的 [Initializer] 任务列表。
+     * @param onResult 所有任务流程执行完毕后的统一回调。
+     *                 该回调在所有可执行的任务（包括成功和失败的）都结束后触发。
+     *                 您可以通过检查其参数 [StartupResult] 的类型来处理成功或失败的情况。
+     *                 - **StartupResult.Success**: 表示所有任务均成功完成。
+     *                 - **StartupResult.Failure**: 表示至少有一个任务失败，其中包含了所有失败任务的详细信息列表。
+     */
+    constructor(
+        context: Context,
+        isDebug: Boolean = false,
+        dispatchers: StartupDispatchers = DefaultDispatchers,
+        initializers: List<Initializer<*>>,
+        onResult: ((StartupResult) -> Unit)? = null
+    ) : this(context, StartupConfig(isDebug, dispatchers, onResult), initializers)
+
 
     // Stores the results of each initializer.
     // 用于存储每个初始化任务的结果。
@@ -89,7 +100,7 @@ open class Startup(
 
     // CoroutineScope 用于管理所有初始化任务的生命周期。
     private val scope: CoroutineScope =
-        CoroutineScope(SupervisorJob() + dispatchers.startDispatcher)
+        CoroutineScope(SupervisorJob() + config.dispatchers.startDispatcher)
 
     // Atomic flag to prevent multiple invocations of the start() method.
     // 原子状态锁，防止 start() 方法被多次调用。
@@ -125,63 +136,12 @@ open class Startup(
             try {
                 // 1. Sorts and validates initializers topologically.
                 // 1. 对任务进行拓扑排序和验证。
-                val sortedInitializers = topologicalSortAndValidate(initializers)
+                val graphManager = DependencyGraphManager(initializers, config.isDebug)
+                val sortedInitializers = graphManager.sortAndValidate()
 
                 // 3. 按依赖关系执行所有并行任务。
                 //    使用 supervisorScope 隔离并行任务，一个任务的失败不会取消其他任务。
-                supervisorScope {
-                    val parallelJobs = mutableMapOf<KClass<out Initializer<*>>, Deferred<*>>()
-
-                    for (initializer in sortedInitializers) {
-                        val job = async(dispatchers.executeDispatcher) {
-                            // Before starting the current task, wait for its dependencies to complete.
-                            // 在启动当前任务前，先等待其所有依赖项完成。
-                            val dependencyJobs = initializer.dependencies()
-                                .mapNotNull { dependencyClass -> parallelJobs[dependencyClass] }
-
-                            // 等待所有并行的依赖任务完成
-                            // 如果任何依赖项失败，awaitAll会抛出异常，此任务也将失败
-                            dependencyJobs.awaitAll()
-
-                            // After all dependencies are met, execute the current task.
-                            // 所有依赖都完成后，执行当前任务。
-                            execute(initializer)
-                        }
-                        parallelJobs[initializer::class] = job
-                    }
-
-                    // Wait for all parallel jobs to complete (successfully or with failure).
-                    // 等待所有并行任务完成（无论成功或失败）。
-                    parallelJobs.values.joinAll()
-                    // 我们需要一个从 Job 到 Initializer 的反向映射
-                    val jobToInitializerMap = parallelJobs.entries.associate { (k, v) -> v to k }
-                    // 手动收集所有非取消异常
-                    parallelJobs.values.forEach { job ->
-                        // 我们只检查已被取消/失败的任务。
-                        // 这个 if 条件至关重要：它强制 await() 进入“抛出取消异常”的逻辑分支，
-                        if (job.isCancelled) {
-                            try {
-                                // 由于我们已经调用了 joinAll()，因此 await() 不会在这里暂停。
-                                // 它将立即返回结果或抛出存储的异常。
-                                job.await()
-                            } catch (e: CancellationException) {
-                                // 我们显式忽略 CancellationExceptions，因为它们通常不是此逻辑失败的根本原因。
-                                val rootCause = e.cause
-                                if (rootCause != null) {
-                                    jobToInitializerMap[job]?.let { failedClass ->
-                                        exceptions.add(StartupException(failedClass, rootCause))
-                                    }
-                                }
-                            } catch (e: Throwable) {
-                                // 这是一次“真正的”失败。将其添加到我们的例外列表中。
-                                jobToInitializerMap[job]?.let { failedClass ->
-                                    exceptions.add(StartupException(failedClass, e))
-                                }
-                            }
-                        }
-                    }
-
-                }
+                executeAll(sortedInitializers, exceptions)
 
             } catch (e: Throwable) {
                 // Catches all exceptions from the startup process, including failures from serial tasks
@@ -193,7 +153,7 @@ open class Startup(
                     exceptions.add(StartupException(Startup::class, e))
                 }
             } finally {
-                if (isDebug) {
+                if (config.isDebug) {
                     // 计算总耗时
                     val totalDuration = System.currentTimeMillis() - totalStartTime
                     // 调用新的打印方法来汇总并打印性能报告
@@ -221,17 +181,76 @@ open class Startup(
 
                 // 如果有错误回调，则调用它
                 if (isActive) {
-                    withContext(dispatchers.callbackDispatcher) {
-                        onResult?.invoke(result)
+                    withContext(config.dispatchers.callbackDispatcher) {
+                        config.onResult?.invoke(result)
                     }
                 } else {
-                    GlobalScope.launch(dispatchers.callbackDispatcher) {
-                        onResult?.invoke(result)
+                    GlobalScope.launch(config.dispatchers.callbackDispatcher) {
+                        config.onResult?.invoke(result)
                     }
                 }
             }
         }
     }
+
+
+    private suspend fun executeAll(
+        sortedInitializers: List<Initializer<*>>,
+        exceptions: MutableList<StartupException>
+    ) = supervisorScope {
+        val parallelJobs = mutableMapOf<KClass<out Initializer<*>>, Deferred<*>>()
+
+        for (initializer in sortedInitializers) {
+            val job = async(config.dispatchers.executeDispatcher) {
+                // Before starting the current task, wait for its dependencies to complete.
+                // 在启动当前任务前，先等待其所有依赖项完成。
+                val dependencyJobs = initializer.dependencies()
+                    .mapNotNull { dependencyClass -> parallelJobs[dependencyClass] }
+
+                // 等待所有并行的依赖任务完成
+                // 如果任何依赖项失败，awaitAll会抛出异常，此任务也将失败
+                dependencyJobs.awaitAll()
+
+                // After all dependencies are met, execute the current task.
+                // 所有依赖都完成后，执行当前任务。
+                execute(initializer)
+            }
+            parallelJobs[initializer::class] = job
+        }
+
+        // Wait for all parallel jobs to complete (successfully or with failure).
+        // 等待所有并行任务完成（无论成功或失败）。
+        parallelJobs.values.joinAll()
+        // 我们需要一个从 Job 到 Initializer 的反向映射
+        val jobToInitializerMap = parallelJobs.entries.associate { (k, v) -> v to k }
+        // 手动收集所有非取消异常
+        parallelJobs.values.forEach { job ->
+            // 我们只检查已被取消/失败的任务。
+            // 这个 if 条件至关重要：它强制 await() 进入“抛出取消异常”的逻辑分支，
+            if (job.isCancelled) {
+                try {
+                    // 由于我们已经调用了 joinAll()，因此 await() 不会在这里暂停。
+                    // 它将立即返回结果或抛出存储的异常。
+                    job.await()
+                } catch (e: CancellationException) {
+                    // 我们显式忽略 CancellationExceptions，因为它们通常不是此逻辑失败的根本原因。
+                    val rootCause = e.cause
+                    if (rootCause != null) {
+                        jobToInitializerMap[job]?.let { failedClass ->
+                            exceptions.add(StartupException(failedClass, rootCause))
+                        }
+                    }
+                } catch (e: Throwable) {
+                    // 这是一次“真正的”失败。将其添加到我们的例外列表中。
+                    jobToInitializerMap[job]?.let { failedClass ->
+                        exceptions.add(StartupException(failedClass, e))
+                    }
+                }
+            }
+        }
+
+    }
+
 
     /**
      * Executes a single initializer and stores its result if it's not Unit.
@@ -245,7 +264,7 @@ open class Startup(
                 results[initializer::class] = result
             }
         }
-        if (isDebug) {
+        if (config.isDebug) {
             taskMetrics.add(
                 TaskMetrics(
                     name = initializer::class.simpleName ?: "UnknownInitializer",
@@ -254,73 +273,6 @@ open class Startup(
                 )
             )
         }
-    }
-
-    /**
-     * Sorts initializers topologically and validates their dependencies.
-     * Throws an exception if a circular or illegal dependency is detected.
-     * --- (中文说明) ---
-     * 对初始化任务进行拓扑排序并验证依赖关系。
-     * 如果存在循环依赖或非法依赖，会抛出异常。
-     */
-    private fun topologicalSortAndValidate(initializers: List<Initializer<*>>): List<Initializer<*>> {
-        val sortedList = mutableListOf<Initializer<*>>()
-        val inDegree = mutableMapOf<KClass<out Initializer<*>>, Int>()
-        val graph =
-            mutableMapOf<KClass<out Initializer<*>>, MutableList<KClass<out Initializer<*>>>>()
-        val initializerMap = initializers.associateBy { it::class }
-
-        // --- Stage 1: Validation ---
-        // --- 阶段一：创建节点,交验依赖是否存在---
-        for (initializer in initializers) {
-            // 1. 初始化每个节点的图结构和入度
-            inDegree[initializer::class] = 0
-            graph[initializer::class] = mutableListOf()
-
-            // 2. 遍历其所有依赖项，进行验证
-            for (dependencyClass in initializer.dependencies()) {
-                // 验证 A: 依赖项是否已注册？
-                initializerMap[dependencyClass]
-                    ?: throw IllegalStateException("Dependency ${dependencyClass.simpleName} for ${initializer::class.simpleName} not found in the initializers list.")
-            }
-        }
-
-        // --- Stage 2: Graph Building ---
-        // --- 阶段二：构建图并计算入度 ---
-        for (initializer in initializers) {
-            for (dependency in initializer.dependencies()) {
-                graph[dependency]?.add(initializer::class)
-                inDegree[initializer::class] = (inDegree[initializer::class] ?: 0) + 1
-            }
-        }
-
-        // --- Stage 3: Topological Sort ---
-        // --- 阶段三：执行拓扑排序 ---
-        val queue = ArrayDeque(inDegree.filterValues { it == 0 }.keys)
-
-        while (queue.isNotEmpty()) {
-            val clazz = queue.removeFirst()
-            initializerMap[clazz]?.let { sortedList.add(it) }
-
-            graph[clazz]?.forEach { neighbor ->
-                inDegree[neighbor] = (inDegree[neighbor]!! - 1)
-                if (inDegree[neighbor] == 0) {
-                    queue.add(neighbor)
-                }
-            }
-        }
-
-        if (sortedList.size != initializers.size) {
-            throw IllegalStateException("Circular dependency detected in initializers!")
-        }
-
-        // --- Stage 4: Print Dependency Graph ---
-        // --- 阶段四：打印依赖关系图 ---
-        if (isDebug) {
-            printDependenciesGraph(sortedList, initializerMap)
-        }
-
-        return sortedList
     }
 
 
@@ -353,39 +305,6 @@ open class Startup(
         return results[dependency] as? T
     }
 
-
-    /**
-     * 打印所有任务的拓扑依赖图到控制台。
-     * 格式:
-     * ```txt
-     * TaskName
-     *   ├─ Dependency1
-     *   └─ Dependency2
-     * ```
-     */
-    private fun printDependenciesGraph(
-        sortedInitializers: List<Initializer<*>>,
-        initializerMap: Map<KClass<out Initializer<*>>, Initializer<*>>
-    ) {
-        val logContent = StringBuilder("\n--- Startup Coroutine Dependency Graph ---\n\n")
-
-        sortedInitializers.forEach { initializer ->
-            logContent.append("${initializer::class.simpleName}\n")
-
-            val dependencies = initializer.dependencies()
-            if (dependencies.isNotEmpty()) {
-                dependencies.forEachIndexed { index, depClass ->
-                    val prefix = if (index == dependencies.size - 1) "  └─ " else "  ├─ "
-                    logContent.append("$prefix${depClass.simpleName}\n")
-                }
-            }
-        }
-        logContent.append("\n----------------------------------------")
-        // 使用 Log.d 打印，以便在 Android Logcat 中查看
-        Log.d("StartupCoroutine", logContent.toString())
-    }
-
-
     /**
      * 打印整个启动流程的性能总结报告。
      * @param totalDuration 整个流程的总耗时（从 start() 调用到 finally 块）。
@@ -397,7 +316,7 @@ open class Startup(
         // 1. 打印总览
         val status = if (hasErrors) "FAILED" else "SUCCESS"
         logContent.append(">> Total Time: ${totalDuration}ms  |  Status: $status\n")
-        val dispatchersMode = getDispatchersMode(dispatchers)
+        val dispatchersMode = getDispatchersMode(config.dispatchers)
         logContent.append(">> Dispatchers Mode: $dispatchersMode\n\n")
         logContent.append(">> Individual Task Durations:\n")
 
