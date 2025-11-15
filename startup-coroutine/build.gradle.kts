@@ -35,6 +35,7 @@ android {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.android)
+    api(project(":startup-coroutine-api"))
     testImplementation(libs.mockito.core)
     testImplementation(libs.junit)
     testImplementation(libs.truth.v145)

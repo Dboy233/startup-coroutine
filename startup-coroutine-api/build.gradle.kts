@@ -10,4 +10,10 @@ kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
     }
+
+}
+
+dependencies{
+    // https://mvnrepository.com/artifact/javax.inject/javax.inject
+    api("javax.inject:javax.inject:1")
 }

@@ -252,7 +252,7 @@ open class Startup private constructor(
      */
     private suspend fun execute(initializer: Initializer<*>) {
         val duration = measureTimeMillis {
-            val result = initializer.init(context, this)
+            val result = initializer.init( this)
             if (result !is Unit && result != null) {
                 results[initializer::class] = result
             }
