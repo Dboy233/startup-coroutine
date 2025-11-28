@@ -35,11 +35,16 @@ android {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.lifecycle.livedata.core.ktx)
     testImplementation(libs.mockito.core)
     testImplementation(libs.junit)
+    testImplementation(libs.mockk)
     testImplementation(libs.truth.v145)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.mockk)
+    testImplementation("androidx.test:core:1.7.0")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:6.1.0")
+    testImplementation("androidx.lifecycle:lifecycle-runtime-testing:2.6.1")
+    testImplementation("androidx.arch.core:core-testing:2.2.0")
 }
 
 publishing {
