@@ -12,8 +12,9 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Startupcoroutine">
+
         <activity
-            android:name=".MainActivity"
+            android:name=".SplashActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -22,38 +23,7 @@
             </intent-filter>
         </activity>
 
-
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            android:exported="false"
-            tools:node="merge">
-
-            <!--
-              使用 tools:node="remove" 来显式地禁用以下 Initializer 的自动初始化。
-              这会告诉构建工具，我们计划手动调用它们，从而避免 [EnsureInitializerMetadata] Lint 错误。
-            -->
-            <meta-data
-                android:name="com.dboy.coroutine.JetpackBugMonitorInitializer"
-                tools:node="remove" />
-
-            <meta-data
-                android:name="com.dboy.coroutine.JetpackCommonUtilsInitializer"
-                tools:node="remove" />
-
-            <meta-data
-                android:name="com.dboy.coroutine.JetPackDatabaseInitializer"
-                tools:node="remove" />
-
-            <meta-data
-                android:name="com.dboy.coroutine.JetpackConfigInitializer"
-                tools:node="remove" />
-
-            <meta-data
-                android:name="com.dboy.coroutine.JetpackAdsPlatformInitializer"
-                tools:node="remove" />
-
-        </provider>
+        <activity android:name="com.dboy.coroutine.MainActivity" />
 
     </application>
 

@@ -51,7 +51,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.startup.runtime)
 
-    implementation(project(":startup-coroutine"))
-//    implementation("com.github.Dboy233:startup-coroutine:0.1.0-beta")
+//    implementation(project(":startup-coroutine"))
+    implementation("com.github.Dboy233:startup-coroutine:0.2.0-beta")
 
 }

@@ -1,4 +1,4 @@
-package com.dboy.coroutine
+package com.dboy.coroutine.utils
 
 import android.content.Context
 import android.content.SharedPreferences
