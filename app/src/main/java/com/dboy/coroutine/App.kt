@@ -1,12 +1,15 @@
 package com.dboy.coroutine
 
 import android.app.Application
-import android.util.Log
-import androidx.startup.AppInitializer
+import com.dboy.coroutine.startup.AdMobInit
+import com.dboy.coroutine.startup.AppConfigInit
+import com.dboy.coroutine.startup.ExceptionInit
+import com.dboy.coroutine.startup.FistInitializer
+import com.dboy.coroutine.startup.FlutterEngineInit
+import com.dboy.coroutine.startup.IMInit
+import com.dboy.coroutine.startup.MapSdkInit
 import com.dboy.startup.coroutine.Startup
-import com.dboy.startup.coroutine.model.StartupResult
-import kotlin.collections.forEach
-import kotlin.system.measureTimeMillis
+import com.dboy.startup.coroutine.StartupDispatchers
 
 /**
  * 让Application更加简洁一些.
@@ -16,81 +19,35 @@ import kotlin.system.measureTimeMillis
  */
 class App : Application() {
 
+    companion object {
+        private lateinit var startup: Startup
+
+        fun startInit() {
+            startup.start()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
-        jetpackInitStartup()
-        initStartupCoroutine()
-    }
-
-    private fun jetpackInitStartup() {
-        Log.d("StartupJetpack", "============== StartupJetpack 启动流程开始 ==============")
-
-        val time = measureTimeMillis {
-            //需要自己弄明白依赖关系,只需要初始化两个末端任务即可,其内部会自动初始化他们依赖的任务
-            AppInitializer.getInstance(this).apply {
-                initializeComponent(JetpackBugMonitorInitializer::class.java)
-                initializeComponent(JetpackAdsPlatformInitializer::class.java)
-            }
-        }
-
-        Log.i("StartupJetpack", "==============StartupJetpack 用时统计==============")
-        timeStatistics.forEach {
-            Log.i("StartupJetpack", it)
-        }
-
-        Log.i("StartupJetpack", "StartupJetpack 总共耗时: $time")
-
-        Log.i(
-            "StartupJetpack",
-            "============== StartupJetpack 启动流程成功结束==============\n.\n."
+        SpUtils.init(this)
+        val initializer = listOf(
+            AdMobInit(),
+            AppConfigInit(),
+            FlutterEngineInit(),
+            FistInitializer(),
+            IMInit(),
+            MapSdkInit(),
+            ExceptionInit()
         )
+        startup = Startup.Builder(this)
+            .setDispatchers(StartupDispatchers.AllIO)
+            .setDebug(true)
+            .add(initializer)
+            .build()
+        if (SpUtils.getBoolean("isAgreePrivacy",false)) {
+            startInit()
+        }
     }
 
-    private fun initStartupCoroutine() {
-        Log.d("StartupCoroutine", "============== 启动流程开始 ==============")
-
-        //构建并启动 Startup 框架
-        val startup = Startup(
-            context = this,
-            isDebug = true,
-            // 定义所有需要执行的初始化任务列表,无需排序
-            initializers = listOf(
-                BugMonitorInitializer(),
-                CommonUtilsInitializer(),
-                ConfigInitializer(),
-                DatabaseInitializer(),
-                AdsPlatformInitializer(),
-            ),
-            onResult = {
-                when (it) {
-                    is StartupResult.Failure -> {
-                        Log.e(
-                            "StartupCoroutine",
-                            "============== 启动流程发生错误 =============="
-                        )
-                        it.exceptions.forEach { error ->
-                            Log.e(
-                                "StartupCoroutine",
-                                "任务${error.initializerClass}执行失败",
-                                error.exception
-                            )
-                        }
-                    }
-
-                    StartupResult.Success -> {
-                        Log.d(
-                            "StartupCoroutine",
-                            "============== 启动流程成功结束=============="
-                        )
-                    }
-                }
-            }
-        )
-
-        //调用 start() 方法，开始执行所有初始化任务
-        startup.start()
-
-        Log.d("StartupCoroutine", "startup.start() 已调用，主线程继续执行其他任务...")
-    }
 }
 

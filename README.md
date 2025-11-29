@@ -27,9 +27,11 @@
 *   [🚀 快速上手](#-快速上手)
     *   [第一步：定义初始化任务](#第一步定义初始化任务)
     *   [第二步：配置并启动框架](#第二步配置并启动框架)
+    *   [第三步：监听启动结果](#第三步监听启动结果)
 *   [🧩 核心 API 解析](#-核心-api-解析)
     *   [`Initializer<T>`](#initializert)
-    *   [`Startup`](#startup)
+    *   [`Startup.Builder`](#startupbuilder)
+    *   [`StartupDispatchers`](#startupdispatchers)
     *   [`DependenciesProvider`](#dependenciesprovider)
 *   [🔧 高级用法](#-高级用法)
     *   [异常处理机制](#异常处理机制)
@@ -41,14 +43,12 @@
 ## ✨ 核心特性
 
 *   **🔗 依赖管理**: 自动解析并按拓扑顺序执行任务，精确处理任务间的依赖关系。
-*   **⚡ 主线程安全**: 所有任务默认在 **主线程** 上执行，确保UI相关初始化的绝对安全。
-*   **🚀 极致性能**: 框架自身的管理调度工作在 **后台线程** 完成，对主线程几乎零干扰，最大化提升应用启动性能。
+*   **⚡ 协程优先**: 原生支持 `suspend` 函数，轻松处理异步初始化（如网络请求、数据库迁移）。
+*   **🧵 灵活调度**: 提供多种线程调度策略（全主线程、全IO线程、IO执行主线程回调等），适应不同场景。
+*   **🚀 极致性能**: 框架自身的拓扑排序与调度逻辑在后台执行，对主线程几乎零干扰。
 *   **🛡️ 异常隔离**: 采用 `supervisorScope` 隔离并行任务，确保单个任务的失败不会导致整个启动流程崩溃。
-*   **📊 统一结果回调**: 通过 `onResult` 回调统一处理成功或失败的最终状态。
-*   **🤚 可取消**: 支持随时安全地取消整个启动流程，并正确处理相关的资源释放。
-*   **🍃 轻量级**: 基于 Kotlin 协程，核心逻辑简洁，对项目侵入性小。
-
-
+*   **👀 生命周期感知**: 通过 `LiveData` 观察启动结果，完美适配 Activity/Fragment 生命周期。
+*   **🤚 可取消**: 返回标准协程 `Job`，支持随时安全地取消整个启动流程。
 
 ## 📥 下载与集成
 
@@ -70,7 +70,7 @@ dependencyResolutionManagement {
 
 ### 第二步：添加依赖
 
-<a href="https://jitpack.io/#Dboy233/startup-coroutine"><img src="https://jitpack.io/v/Dboy233/startup-coroutine.svg"></a>
+<a href="https://jitpack.io/#Dboy233/startup-coroutine"><img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/18303f6ae53b4be6b6ba25c41bec4198~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg5bm05bCP5Liq5aSn:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTg1NTYzMTM1OTIxMzY4OCJ9&#x26;rk3s=e9ecf3d6&#x26;x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&#x26;x-orig-expires=1764507776&#x26;x-orig-sign=QpFxesMuLPJmsqLAQ1Q5fiGTDvw%3D"></a>
 
 在您需要使用此框架的模块（通常是 `app` 模块）的 `build.gradle.kts` 文件中，添加依赖项。请将 `Tag` 替换为最新的版本号。
 
@@ -84,157 +84,166 @@ dependencies {
 
 您可以通过上方的版本角标查看最新的版本号。
 
-
 ## 🚀 快速上手
 
 ### 第一步：定义初始化任务
 
-每个初始化单元都应继承 `Initializer<T>` 抽象类，并实现其核心方法。
+每个初始化单元都需要实现 `Initializer<T>` 接口。
 
-*   **`init(context, provider)`**: 包含实际的初始化逻辑。这是一个挂起函数，可在`Startup`中指定其工作线程,也可在内部自行切换。
-*   **`dependencies()`**: (可选) 声明当前任务所依赖的其他 `Initializer` 任务。
-
+*   **`init(application, provider)`**: 包含实际的初始化逻辑。这是一个 `suspend` 函数。
+*   **`dependencies()`**: (可选) 声明当前任务所依赖的其他 `Initializer` 类。
 
 **示例：定义两个任务**
 
-一个用于初始化分析服务的任务（`AnalyticsInitializer`），它包含耗时操作；以及另一个依赖于它的广告SDK初始化任务（`AdsInitializer`）。
+一个用于初始化网络库的任务（`NetworkInitializer`），以及一个依赖于它的 API 服务初始化任务（`ApiServiceInitializer`）。
 
 ```kotlin
+// 1. 定义一个产出 Retrofit 实例的任务
+class NetworkInitializer : Initializer<Retrofit> {
 
-// AnalyticsInitializer.kt
-// 一个模拟耗时并返回 SDK 对象的并行任务
-class AnalyticsInitializer : Initializer<AnalyticsSDK>() {
-
-    override suspend fun init(context: Context, provider: DependenciesProvider): AnalyticsSDK {
-        // 重要：如果在**Startup**中设置了工作线程在Main线程,那么耗时操作也必须要放在IO线程.
-        val result = withContext(Dispatchers.IO) {
-            delay(1000) // 模拟一个耗时的 I/O 操作
-            println("分析服务 SDK 已在后台线程初始化: ${Thread.currentThread().name}")
-            AnalyticsSDK("Analytics-SDK-Instance")
-        }
-        return result
+    override suspend fun init(application: Application, provider: DependenciesProvider): Retrofit {
+        // 这是一个 suspend 函数，适合执行耗时操作
+        // 注意：默认情况下 init 在主线程被调用(取决于 Dispatchers 配置)，
+        // 如果有繁重 I/O，建议使用 withContext(Dispatchers.IO) 或配置 StartupDispatchers.ExecuteOnIO
+        return Retrofit.Builder()
+            .baseUrl("https://api.example.com")
+            .build()
     }
-
 }
 
-// AdsInitializer.kt
-// 一个依赖于 AnalyticsInitializer 的并行任务
-class AdsInitializer : Initializer<Unit>() {
+// 2. 定义一个依赖于 NetworkInitializer 的任务
+class ApiServiceInitializer : Initializer<MyApiService> {
 
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        // 从依赖提供者处获取依赖项的结果
-        val analyticsSDK = provider.result<AnalyticsSDK>(AnalyticsInitializer::class)
-
-        // 此操作在主线程执行，可以直接进行UI相关的初始化(前提:在初始化Startup的时候指明了工作线程在Main线程!)
-        println("广告 SDK 正在使用: ${analyticsSDK.name}，位于主线程: ${Thread.currentThread().name}")
-        // 在此处进行广告 SDK 的初始化...
-    }
-
-    // 定义依赖关系
+    // 声明依赖关系
     override fun dependencies(): List<KClass<out Initializer<*>>> {
-        return listOf(AnalyticsInitializer::class)
+        return listOf(NetworkInitializer::class)
     }
 
+    override suspend fun init(application: Application, provider: DependenciesProvider): MyApiService {
+        // 获取依赖项的结果。如果依赖项失败，ApiServiceInitializer 不会执行init
+        val retrofit = provider.result<Retrofit>(NetworkInitializer::class)
+        
+        return retrofit.create(MyApiService::class.java)
+    }
 }
-
-// 用于示例的虚拟类
-data class AnalyticsSDK(val name: String)
 ```
 
 ### 第二步：配置并启动框架
 
-在您的 `Application` 类或其他合适的入口点，创建 `Startup` 实例并传入任务列表。
+在您的 `Application` 类中，使用 `Startup.Builder` 构建并启动框架。
 
 ```kotlin
-// MyApplication.kt
 class MyApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
 
-        val startup = Startup(
-            context = this,
-            dispatchers = ExecuteOnIODispatchers,//可选
-            initializers = listOf(AnalyticsInitializer(), AdsInitializer()),
-            onResult = { result ->
-                when (result) {
-                    is StartupResult.Success -> {
-                        println("🎉 所有启动任务已成功完成！")
-                    }
-                    is StartupResult.Failure -> {
-                        println("🔥 启动流程失败，共出现 ${result.exceptions.size} 个错误:")
-                    }
-                }
-            }
-        )
+        val startup = Startup.Builder(this)
+            .add(NetworkInitializer())       // 添加任务
+            .add(ApiServiceInitializer())    // 添加任务
+            .setDispatchers(StartupDispatchers.ExecuteOnIO) // 设置线程策略：在IO线程初始化执行，主线程创建框架
+            .setDebug(true)                  // 开启调试模式，输出详细日志
+            .build()
 
-        // 启动初始化流程。此调用是非阻塞的，会立即返回。
+        // 启动初始化流程。此调用是非阻塞的，会立即返回一个 Job。
         startup.start()
     }
-
 }
 ```
 
+### 第三步：监听启动结果
+
+框架提供了基于 `LiveData` 的结果观察机制。您可以在 `SplashActivity` 或 `MainActivity` 中监听启动是否完成。
+
+```kotlin
+class SplashActivity : AppCompatActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        // 观察启动结果
+        Startup.observe(this) { result ->
+            when (result) {
+                is StartupResult.Success -> {
+                    Log.d("Startup", "🎉 所有任务完成！")
+                    goToMainActivity()
+                }
+                is StartupResult.Failure -> {
+                    Log.e("Startup", "🔥 启动失败: ${result.exceptions.size} 个错误")
+                    // 处理错误，例如弹窗提示或重试
+                }
+                StartupResult.Idle -> {
+                    // 尚未开始或已重置
+                }
+            }
+        }
+    }
+}
+```
 
 ## 🧩 核心 API 解析
 
 ### `Initializer<T>`
 
-所有初始化任务的基类。
+核心接口，定义一个初始化单元。
 
-*   `init(context: Context, provider: DependenciesProvider): T`: 您的初始化逻辑所在地。这是一个默认在 **主线程** 执行的挂起函数。**任何耗时操作都必须使用 `withContext` 切换到后台线程**。
-*   `dependencies(): List<KClass<out Initializer<*>>>`: 指定该任务所依赖的其他任务。
+*   `suspend fun init(application: Application, provider: DependenciesProvider): T`: 执行初始化逻辑。
+*   `fun dependencies(): List<KClass<out Initializer<*>>>`: 返回依赖的任务列表。
 
-### `Startup`
+### `Startup.Builder`
 
-管理和执行初始化流程的核心类。
+用于构建 `Startup` 实例的建造者。
 
-*   `start()`: 启动整个初始化流程。此方法是线程安全的、非阻塞的，且只能成功调用一次。
-*   `cancel()`: 取消所有正在进行的初始化任务。
+*   `add(Initializer<*>)`: 添加单个或多个任务。
+*   `setDispatchers(StartupDispatchers)`: 配置线程调度策略。
+*   `setDebug(Boolean)`: 是否输出调试日志（包含耗时统计和依赖图）。
+*   `build()`: 创建 `Startup` 实例。
+
+### `StartupDispatchers`
+
+预置的线程调度策略，控制任务在哪个线程执行以及在哪个线程启动。
+
+| 策略                | 说明                                      | 适用场景                  |
+| :---------------- | :-------------------------------------- | :-------------------- |
+| **`Default`**     | **(推荐)** 启动/排序在 IO 线程，`init` 在 **主线程**。 | 大多数包含 UI 初始化的场景。      |
+| **`ExecuteOnIO`** | 启动/排序在主线程，`init` 在 **IO 线程**。           | 任务主要是耗时 I/O (数据库、网络)。 |
+| **`AllIO`**       | 全流程都在 IO 线程。                            | 完全无 UI 操作的后台初始化。      |
+| **`AllMain`**     | 全流程都在主线程。                               | 仅适用于极轻量级的任务集合。        |
 
 ### `DependenciesProvider`
 
-一个传递给 `init()` 方法的接口，允许任务获取其依赖项的执行结果。
+传递给 `init` 方法的参数，用于获取上游依赖的结果。
 
-*   `result<T>(dependency: KClass<out Initializer<*>>): T`: 获取一个已完成依赖项的结果。如果结果不可用（例如，依赖项失败、未注册或返回 Unit），则会抛出 `IllegalStateException`。
-*   `resultOrNull<T>(dependency: KClass<out Initializer<*>>): T?`: **（推荐）** 安全地获取结果，如果结果不可用则返回 `null`。
+*   `result<T>(class)`: 获取结果，如果不存在或类型不匹配抛出异常。
+*   `resultOrNull<T>(class)`: 安全获取结果，失败返回 null。
 
 ## 🔧 高级用法
 
 ### 异常处理机制
 
-框架能够聚合所有来自并行任务的异常。如果一个串行任务失败，整个启动流程将立即终止并报告异常。如果一个或多个并行任务失败，框架会等待所有其他可独立运行的任务完成后，通过 `onError` 回调一次性报告所有收集到的异常。
+框架会收集所有并行任务中的异常。
+
+*   如果发生异常，`Startup.observe` 会收到 `StartupResult.Failure`。
+*   `Failure` 对象包含一个 `exceptions` 列表，您可以遍历它查看具体的错误原因。
+*   使用 `setDebug(true)` 可以在 Logcat 中看到详细的错误堆栈和对应的任务名称。
 
 ### 循环依赖检测
 
-框架在启动时会自动进行拓扑排序，如果检测到初始化任务之间存在循环依赖，它会抛出 `IllegalStateException`，从而防止在运行时出现死锁。
+在 `build()` 之后，调用 `start()` 时，框架会自动执行拓扑排序。如果检测到循环依赖（例如 A 依赖 B，B 依赖 A），会立即抛出 `IllegalStateException`，帮助您在开发阶段发现结构问题。
 
 ## 🆚 与 Jetpack App Startup 对比
 
-Jetpack App Startup 是一个优秀的库，它通过 `ContentProvider` 实现了自动化的无感初始化。那么，在什么情况下你应该选择 `startup-coroutine` 呢？
-
-| 特性 | Jetpack App Startup | startup-coroutine | 优势说明 |
-| :--- | :--- | :--- | :--- |
-| **调用方式** | 自动化、无侵入 | 手动调用 (`startup.start()`) | **startup-coroutine** 提供了更灵活的控制，你可以在任何时机（如同意隐私协议后）启动任务。 |
-| **线程模型与异步能力** | 在后台线程执行，不支持 `suspend` | **框架后台调度，任务主线程执行**，原生支持 `susband` 函数 | **startup-coroutine** 的优势是压倒性的：<br>1. **主线程零干扰**：框架自身开销在后台，对启动性能更友好。<br>2. **原生异步支持**：`init` 方法是 `susband` 函数，可以直接调用其他挂起函数（如Retrofit, Room的异步API），代码简洁自然，无需回调。<br>3. **任意线程切换**：可使用 `withContext` 在初始化任务内部轻松、高效地切换任意线程。|
-| **异常处理** | 崩溃（默认） | 隔离并行任务，统一回调 | **startup-coroutine** 通过 `supervisorScope` 提供了更强大的异常隔离能力，单个任务失败不影响其他任务。 |
-| **结果传递** | 支持，但较简单 | `DependenciesProvider` | **startup-coroutine** 提供了类型安全、更直观的结果传递方式。 |
-| **取消支持** | 否 | **是 (`startup.cancel()`)** | **startup-coroutine** 支持在运行时取消整个启动流程，适用于动态模块场景。 |
-
-**总结:**
-
-*   如果你需要一个 **简单、全自动、一次性** 的启动方案，**Jetpack App Startup** 是一个不错的选择。
-*   如果你需要对启动流程进行 **精细化控制、拥有高级并发管理、强大的异常隔离**，或者需要在应用生命周期的 **不同阶段触发初始化**，那么 **startup-coroutine** 将是更强大、更灵活的解决方案。
-
-**什么时候选择Startup-Coroutine框架:**
-
-*   项目初始化任务逻辑复杂
-*   所有初始化任务占据了Application.onCreate()方法超过2秒以上,startup的线程模型可以帮你优化30%的启动时间.
-*   你急需展示你的SplashActivity,而不是卡在一个启动白屏上.
+| 特性       | Jetpack App Startup    | startup-coroutine        | 优势说明                                                                                         |
+| :------- | :--------------------- | :----------------------- | :------------------------------------------------------------------------------------------- |
+| **异步能力** | 不支持 (同步阻塞)             | **原生支持协程**               | **startup-coroutine** 的 `init` 是 `suspend` 函数，天然适配现代 Android 开发 (Room, Retrofit, DataStore)。 |
+| **线程控制** | 默认主线程                  | **高度可配置**                | 可一键切换全 IO 线程执行，避免 ANR。                                                                       |
+| **依赖参数** | 无 (通过 ContentProvider) | **DependenciesProvider** | 支持上游任务向下游传递初始化结果（如 OkHttp 实例传给 Retrofit）。                                                    |
+| **结果监听** | 较弱                     | **LiveData 观察**          | 方便与 UI 生命周期绑定，制作启动页更简单。                                                                      |
+| **手动控制** | 支持                     | **Builder 模式**           | 更符合直觉的配置方式，支持懒加载和按需启动。                                                                       |
 
 ## 🤝 贡献指南
 
-欢迎各种形式的贡献！无论是提交 Bug、提出新功能建议还是直接贡献代码，我们都非常欢迎。
+欢迎各种形式的贡献！
 
 1.  Fork 本仓库
 2.  创建您的特性分支 (`git checkout -b feature/AmazingFeature`)
@@ -244,98 +253,4 @@ Jetpack App Startup 是一个优秀的库，它通过 `ContentProvider` 实现�
 
 ## 📄 许可证
 
-本项目采用 Apache 2.0 许可证。详情请参阅 [LICENSE](https://github.com/Dboy233/startup-coroutine/blob/master/blob/LICENSE) 文件。
-
-### 致谢与声明
-
-本项目的开发过程得到了 AI 编程助手的支持。部分代码、文档和优化建议在 AI(Gemini) 的协助下完成，并由作者审查和整合。
-
-## 🔧 测试日志
-
-
-> 首先使用jetpack的app startup框架启动流程.
-
-
-```txt
-StartupJetpack           D  ============== StartupJetpack 启动流程开始 ==============
-StartupJetpack           D  1. [BugMonitor] (main) 开始初始化Bug统计平台...
-StartupJetpack           D  1. [BugMonitor] (main) ✅ Bug统计平台初始化完成。
-StartupJetpack           D  2. [Utils] (main) 开始初始化通用工具库...
-StartupJetpack           D  2.1 [Utils] (main) ...日志、网络、统计、EventBus等工具OK
-StartupJetpack           D  2. [Utils] (main) ✅ 通用工具库全部初始化完成。
-StartupJetpack           D  3. [Database] (main) 开始初始化数据库...
-StartupJetpack           D  3. [Database] (main) ...检测到数据库需要升级，执行升级操作...
-StartupJetpack           D  3. [Database] (main) ✅ 数据库初始化完成。
-StartupJetpack           D  4. [Config] (main) 开始从网络获取配置信息...
-StartupJetpack           D  4. [Config] (main) ✅ 配置信息获取成功。
-StartupJetpack           D  5. [Ads] (main) 开始初始化广告平台...
-StartupJetpack           D  5. [Ads] (main) ...使用配置: {provider=AwesomeAds, timeout=3000}
-StartupJetpack           D  5. [Ads] (main) ✅ 广告平台初始化完成。
-StartupJetpack           I  ==============StartupJetpack 用时统计==============
-StartupJetpack           I  - JectpacjBugMonitorInitializer   | 103
-StartupJetpack           I  - JetcpackCommonUtilsInitializer    | 500
-StartupJetpack           I  - JetcPackDatabaseInitializer | 301
-StartupJetpack           I  - JetpackConfigInitializer    | 82 ms
-StartupJetpack           I  - JectpackAdsPlatformInitializer    | 202ms
-StartupJetpack           I  StartupJetpack 总共耗时: 1191
-StartupJetpack           I  ============== StartupJetpack 启动流程成功结束==============
-                            
-```
-
-> 使用startup-coroutine启动流程.
-
-```txt
-StartupCoroutine         D  ============== 启动流程开始 ==============
-StartupCoroutine         D  startup.start() 已调用，主线程继续执行其他任务...
-StartupCoroutine         D  --- Startup Coroutine Dependency Graph ---
-                            
-                            BugMonitorInitializer
-                            CommonUtilsInitializer
-                            DatabaseInitializer
-                              └─ CommonUtilsInitializer
-                            ConfigInitializer
-                              ├─ CommonUtilsInitializer
-                              └─ DatabaseInitializer
-                            AdsPlatformInitializer
-                              └─ ConfigInitializer
-                            
-                            ----------------------------------------
-StartupCoroutine         D  1. [BugMonitor] (main) 开始初始化Bug统计平台...
-StartupCoroutine         D  2. [Utils] (main) 开始初始化通用工具库...
-StartupCoroutine         D  1. [BugMonitor] (main) ✅ Bug统计平台初始化完成。
-StartupCoroutine         D  2.1 [Utils] (main) ...日志、网络、统计、EventBus等工具OK
-StartupCoroutine         D  2. [Utils] (main) ✅ 通用工具库全部初始化完成。
-StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-3) 开始初始化数据库...
-StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-3) ...检测到数据库需要升级，执行升级操作...
-StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-3) ✅ 数据库初始化完成。
-StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-4) 开始从网络获取配置信息...
-StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-4) ✅ 配置信息获取成功: AppConfig(adConfig={provider=AwesomeAds, timeout=3000}, featureFlags=[new_checkout_flow, enable_dark_mode])
-StartupCoroutine         D  5. [Ads] (main) 开始初始化广告平台...
-StartupCoroutine         D  5. [Ads] (main) ...使用配置: {provider=AwesomeAds, timeout=3000}
-StartupCoroutine         D  5. [Ads] (main) ✅ 广告平台初始化完成。
-StartupCoroutine         I  --- Startup Coroutine Performance Summary ---
-                            
-                            >> Total Time: 1853ms  |  Status: SUCCESS
-                            >> Dispatchers Mode: Default
-                            
-                            >> Individual Task Durations:
-                               - CommonUtilsInitializer  |  502ms  |  Thread: main
-                               - DatabaseInitializer     |  319ms  |  Thread: main
-                               - BugMonitorInitializer   |  307ms  |  Thread: main
-                               - AdsPlatformInitializer  |  202ms  |  Thread: main
-                               - ConfigInitializer       |  53ms   |  Thread: main
-                            >> Task time is sum  : 1383 ms
-                            
-                            -------------------------------------------
-StartupCoroutine         D  ============== 启动流程成功结束==============
-
-
-
-```
-
-
-```
-
-
-
-
+本项目采用 Apache 2.0 许可证。详情请参阅 [LICENSE](LICENSE) 文件。

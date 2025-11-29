@@ -1,11 +1,14 @@
+
 <div align="center">
   <h1 align="center">Startup-Coroutine</h1>
   <p align="center">
-    A Kotlin Coroutine-based startup framework for Android, elegantly managing your app initialization process.
+    A Kotlin Coroutines-based Android startup framework that elegantly manages your app's initialization process.
     <br>
-    <a href="#-core-features"><strong>Explore Features »</strong></a>
+    <a href="#-key-features"><strong>Explore Features »</strong></a>
     <br>
     <br>
+    <a href="README.md">中文</a>
+    ·
     <a href="https://github.com/Dboy233/startup-coroutine/issues">Report Bug</a>
     ·
     <a href="https://github.com/Dboy233/startup-coroutine/issues">Request Feature</a>
@@ -14,44 +17,45 @@
 
 ***
 
-`startup-coroutine` is an asynchronous startup framework designed for Android, based on Kotlin Coroutines. It intelligently manages complex initialization dependencies through topological sorting and leverages the power of coroutines to parallelize tasks, significantly reducing application startup time. The framework is well-designed with advanced error handling and lifecycle management capabilities, making your app initialization process more robust, efficient, and maintainable.
+`startup-coroutine` is an asynchronous startup framework designed for Android, built on Kotlin Coroutines. It intelligently manages complex initialization dependencies using topological sorting and leverages the power of coroutines to parallelize tasks, significantly reducing application startup time. The framework is well-designed with advanced error handling and lifecycle management capabilities, making your app initialization process more robust, efficient, and easier to maintain.
 
 ## 📖 Table of Contents
 
-*   [✨ Core Features](#-core-features)
+*   [✨ Key Features](#-key-features)
 *   [📥 Download & Integration](#-download--integration)
     *   [Step 1: Add JitPack Repository](#step-1-add-jitpack-repository)
     *   [Step 2: Add Dependency](#step-2-add-dependency)
 *   [🚀 Quick Start](#-quick-start)
     *   [Step 1: Define Initialization Tasks](#step-1-define-initialization-tasks)
-    *   [Step 2: Configure and Start the Framework](#step-2-configure-and-start-the-framework)
-*   [🧩 Core API Guide](#-core-api-guide)
+    *   [Step 2: Configure and Start](#step-2-configure-and-start)
+    *   [Step 3: Observe Startup Results](#step-3-observe-startup-results)
+*   [🧩 Core API Analysis](#-core-api-analysis)
     *   [`Initializer<T>`](#initializert)
-    *   [`Startup`](#startup)
+    *   [`Startup.Builder`](#startupbuilder)
+    *   [`StartupDispatchers`](#startupdispatchers)
     *   [`DependenciesProvider`](#dependenciesprovider)
 *   [🔧 Advanced Usage](#-advanced-usage)
     *   [Exception Handling Mechanism](#exception-handling-mechanism)
     *   [Circular Dependency Detection](#circular-dependency-detection)
 *   [🆚 Comparison with Jetpack App Startup](#-comparison-with-jetpack-app-startup)
-*   [🤝 Contributing](#-contributing)
+*   [🤝 Contribution](#-contribution)
 *   [📄 License](#-license)
-*   [🔧 Test Logs](#-test-logs)
 
-## ✨ Core Features
+## ✨ Key Features
 
-*   **🔗 Dependency Management**: Automatically resolves and executes tasks in topological order, precisely handling inter-task dependencies.
-*   **⚡ Main Thread Safety**: All tasks execute on the **Main Thread** by default, ensuring absolute safety for UI-related initializations.
-*   **🚀 Peak Performance**: The framework's own management and scheduling work is done on **background threads**, causing almost zero interference to the main thread, maximizing application startup performance.
-*   **🛡️ Exception Isolation**: Uses `supervisorScope` to isolate parallel tasks, ensuring failure in one task doesn't crash the entire startup process.
-*   **📊 Unified Result Callback**: Handles the final success or failure state uniformly via the `onResult` callback.
-*   **🤚 Cancellable**: Supports safe cancellation of the entire startup process at any time, with proper resource cleanup.
-*   **🍃 Lightweight**: Based on Kotlin Coroutines, with concise core logic and minimal project intrusion.
+*   **🔗 Dependency Management**: Automatically resolves and executes tasks in topological order, precisely handling dependencies between tasks.
+*   **⚡ Coroutine First**: Native support for `suspend` functions, making it easy to handle asynchronous initialization (e.g., network requests, database migrations).
+*   **🧵 Flexible Scheduling**: Provides multiple threading strategies (All Main, All IO, IO Execution with Main Callback, etc.) to adapt to different scenarios.
+*   **🚀 Extreme Performance**: The framework's own topological sorting and scheduling logic runs in the background, with almost zero interference to the main thread.
+*   **🛡️ Exception Isolation**: Uses `supervisorScope` to isolate parallel tasks, ensuring that the failure of a single task does not crash the entire startup process.
+*   **👀 Lifecycle Aware**: Observes startup results via `LiveData`, perfectly adapting to the Activity/Fragment lifecycle.
+*   **🤚 Cancellable**: Returns a standard coroutine `Job`, allowing you to safely cancel the entire startup process at any time.
 
 ## 📥 Download & Integration
 
 ### Step 1: Add JitPack Repository
 
-In your root project's `settings.gradle.kts` (or `settings.gradle`) file, add the JitPack repository URL.
+Add the JitPack repository URL to your root project's `settings.gradle.kts` (or `settings.gradle`) file.
 
 ```kotlin
 // settings.gradle.kts
@@ -69,7 +73,7 @@ dependencyResolutionManagement {
 
 <a href="https://jitpack.io/#Dboy233/startup-coroutine"><img src="https://jitpack.io/v/Dboy233/startup-coroutine.svg"></a>
 
-Add the dependency in the `build.gradle.kts` file of the module where you want to use this framework (usually the `app` module). Replace `Tag` with the latest version number.
+Add the dependency to the `build.gradle.kts` file of the module where you need to use this framework (usually the `app` module). Please replace `Tag` with the latest version number.
 
 ```kotlin
 // app/build.gradle.kts
@@ -79,244 +83,175 @@ dependencies {
 }
 ```
 
-You can check the latest version number via the version badge above.
+You can check the latest version number via the badge above.
 
 ## 🚀 Quick Start
 
 ### Step 1: Define Initialization Tasks
 
-Each initialization unit should inherit from the `Initializer<T>` abstract class and implement its core methods.
+Each initialization unit needs to implement the `Initializer<T>` interface.
 
-*   **`init(context, provider)`**: Contains the actual initialization logic. This is a suspend function. Its dispatcher can be specified in `Startup`, or it can switch internally.
-*   **`dependencies()`**: (Optional) Declares other `Initializer` tasks that this task depends on.
+*   **`init(application, provider)`**: Contains the actual initialization logic. This is a `suspend` function.
+*   **`dependencies()`**: (Optional) Declares other `Initializer` classes that the current task depends on.
 
-**Example: Define Two Tasks**
+**Example: Defining Two Tasks**
 
-One task for initializing an analytics service (`AnalyticsInitializer`), which involves time-consuming operations; and another task for initializing an Ads SDK (`AdsInitializer`) that depends on the first.
+One task for initializing the network library (`NetworkInitializer`), and another for initializing an API service that depends on it (`ApiServiceInitializer`).
 
 ```kotlin
+// 1. Define a task that produces a Retrofit instance
+class NetworkInitializer : Initializer<Retrofit> {
 
-// AnalyticsInitializer.kt
-// A parallel task simulating time-consuming work and returning an SDK object
-class AnalyticsInitializer : Initializer<AnalyticsSDK>() {
-
-    override suspend fun init(context: Context, provider: DependenciesProvider): AnalyticsSDK {
-        // Important: If the **Startup** worker thread is set to Main, time-consuming operations must be placed on the IO thread.
-        val result = withContext(Dispatchers.IO) {
-            delay(1000) // Simulate a time-consuming I/O operation
-            println("Analytics Service SDK initialized on background thread: ${Thread.currentThread().name}")
-            AnalyticsSDK("Analytics-SDK-Instance")
-        }
-        return result
+    override suspend fun init(application: Application, provider: DependenciesProvider): Retrofit {
+        // This is a suspend function, suitable for heavy operations.
+        // Note: By default, init is called on the Main thread (depends on Dispatchers config).
+        // If there is heavy I/O, it is recommended to use withContext(Dispatchers.IO) or configure StartupDispatchers.ExecuteOnIO
+        return Retrofit.Builder()
+            .baseUrl("https://api.example.com")
+            .build()
     }
-
 }
 
-// AdsInitializer.kt
-// A parallel task that depends on AnalyticsInitializer
-class AdsInitializer : Initializer<Unit>() {
+// 2. Define a task that depends on NetworkInitializer
+class ApiServiceInitializer : Initializer<MyApiService> {
 
-    override suspend fun init(context: Context, provider: DependenciesProvider) {
-        // Get the result of the dependency from the dependency provider
-        val analyticsSDK = provider.result<AnalyticsSDK>(AnalyticsInitializer::class)
-
-        // This operation executes on the main thread, allowing direct UI-related initialization (provided Startup's worker thread is set to Main!)
-        println("Ads SDK is using: ${analyticsSDK.name}, on main thread: ${Thread.currentThread().name}")
-        // Initialize the Ads SDK here...
-    }
-
-    // Define dependencies
+    // Declare dependencies
     override fun dependencies(): List<KClass<out Initializer<*>>> {
-        return listOf(AnalyticsInitializer::class)
+        return listOf(NetworkInitializer::class)
     }
 
+    override suspend fun init(application: Application, provider: DependenciesProvider): MyApiService {
+        // Get the result of the dependency. If the dependency failed, ApiServiceInitializer's init will not be executed.
+        val retrofit = provider.result<Retrofit>(NetworkInitializer::class)
+        
+        return retrofit.create(MyApiService::class.java)
+    }
 }
-
-// Dummy class for example
-data class AnalyticsSDK(val name: String)
 ```
 
-### Step 2: Configure and Start the Framework
+### Step 2: Configure and Start
 
-In your `Application` class or other suitable entry point, create a `Startup` instance and pass in the list of tasks.
+In your `Application` class, use `Startup.Builder` to build and start the framework.
 
 ```kotlin
-// MyApplication.kt
 class MyApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
 
-        val startup = Startup(
-            context = this,
-            dispatchers = ExecuteOnIODispatchers, // Optional
-            initializers = listOf(AnalyticsInitializer(), AdsInitializer()),
-            onResult = { result ->
-                when (result) {
-                    is StartupResult.Success -> {
-                        println("🎉 All startup tasks completed successfully!")
-                    }
-                    is StartupResult.Failure -> {
-                        println("🔥 Startup process failed with ${result.exceptions.size} error(s):")
-                    }
-                }
-            }
-        )
+        val startup = Startup.Builder(this)
+            .add(NetworkInitializer())       // Add task
+            .add(ApiServiceInitializer())    // Add task
+            .setDispatchers(StartupDispatchers.ExecuteOnIO) // Set thread strategy: Execute on IO, create framework on Main
+            .setDebug(true)                  // Enable debug mode for detailed logs
+            .build()
 
-        // Start the initialization process. This call is non-blocking and returns immediately.
+        // Start the initialization process. This call is non-blocking and returns a Job immediately.
         startup.start()
     }
-
 }
 ```
 
-## 🧩 Core API Guide
+### Step 3: Observe Startup Results
+
+The framework provides a `LiveData`-based observation mechanism. You can listen for startup completion in your `SplashActivity` or `MainActivity`.
+
+```kotlin
+class SplashActivity : AppCompatActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        // Observe startup results
+        Startup.observe(this) { result ->
+            when (result) {
+                is StartupResult.Success -> {
+                    Log.d("Startup", "🎉 All tasks completed!")
+                    goToMainActivity()
+                }
+                is StartupResult.Failure -> {
+                    Log.e("Startup", "🔥 Startup failed: ${result.exceptions.size} errors")
+                    // Handle errors, e.g., show a dialog or retry
+                }
+                StartupResult.Idle -> {
+                    // Not started yet or reset
+                }
+            }
+        }
+    }
+}
+```
+
+## 🧩 Core API Analysis
 
 ### `Initializer<T>`
 
-The base class for all initialization tasks.
+The core interface defining an initialization unit.
 
-*   `init(context: Context, provider: DependenciesProvider): T`: Where your initialization logic resides. This is a suspend function that executes on the **Main Thread** by default. **Any time-consuming operations must switch to a background thread using `withContext`**.
-*   `dependencies(): List<KClass<out Initializer<*>>>`: Specifies the other tasks that this task depends on.
+*   `suspend fun init(application: Application, provider: DependenciesProvider): T`: Executes the initialization logic.
+*   `fun dependencies(): List<KClass<out Initializer<*>>>`: Returns a list of dependent tasks.
 
-### `Startup`
+### `Startup.Builder`
 
-The core class that manages and executes the initialization process.
+The builder used to create a `Startup` instance.
 
-*   `start()`: Starts the entire initialization process. This method is thread-safe, non-blocking, and can only be successfully called once.
-*   `cancel()`: Cancels all ongoing initialization tasks.
+*   `add(Initializer<*>)`: Adds a single or multiple tasks.
+*   `setDispatchers(StartupDispatchers)`: Configures the thread scheduling strategy.
+*   `setDebug(Boolean)`: Enables/disables debug logs (including timing stats and dependency graphs).
+*   `build()`: Creates a `Startup` instance.
+
+### `StartupDispatchers`
+
+Pre-configured thread scheduling strategies that control where tasks are executed and where the framework starts.
+
+| Strategy | Description | Suitable Scenario |
+| :--- | :--- | :--- |
+| **`Default`** | **(Recommended)** Startup/Sorting on IO, `init` on **Main**. | Most scenarios involving UI initialization. |
+| **`ExecuteOnIO`** | Startup/Sorting on Main, `init` on **IO**. | Tasks are mainly heavy I/O (Database, Network). |
+| **`AllIO`** | Entire process on IO. | Background initialization with absolutely no UI operations. |
+| **`AllMain`** | Entire process on Main. | Only for very lightweight task collections. |
 
 ### `DependenciesProvider`
 
-An interface passed to the `init()` method, allowing a task to get the execution results of its dependencies.
+Passed to the `init` method to retrieve results from upstream dependencies.
 
-*   `result<T>(dependency: KClass<out Initializer<*>>): T`: Gets the result of a completed dependency. Throws an `IllegalStateException` if the result is unavailable (e.g., dependency failed, not registered, or returned Unit).
-*   `resultOrNull<T>(dependency: KClass<out Initializer<*>>): T?`: **(Recommended)** Safely gets the result, returning `null` if the result is unavailable.
+*   `result<T>(class)`: Retrieves the result; throws an exception if missing or type mismatch.
+*   `resultOrNull<T>(class)`: Safely retrieves the result; returns null on failure.
 
 ## 🔧 Advanced Usage
 
 ### Exception Handling Mechanism
 
-The framework can aggregate exceptions from all parallel tasks. If a sequential task fails, the entire startup process terminates immediately and reports the exception. If one or more parallel tasks fail, the framework waits for all other independently runnable tasks to complete, then reports all collected exceptions at once via the `onResult` callback.
+The framework collects exceptions from all parallel tasks.
+
+*   If an exception occurs, `Startup.observe` will receive `StartupResult.Failure`.
+*   The `Failure` object contains an `exceptions` list, which you can iterate through to see specific error causes.
+*   Using `setDebug(true)` allows you to see detailed error stacks and corresponding task names in Logcat.
 
 ### Circular Dependency Detection
 
-The framework automatically performs topological sorting upon startup. If it detects a circular dependency among initialization tasks, it throws an `IllegalStateException`, preventing deadlocks at runtime.
+After `build()`, when `start()` is called, the framework automatically performs topological sorting. If a circular dependency is detected (e.g., A depends on B, B depends on A), an `IllegalStateException` is thrown immediately to help you identify structural issues during development.
 
 ## 🆚 Comparison with Jetpack App Startup
 
-Jetpack App Startup is an excellent library that achieves automated, seamless initialization via `ContentProvider`. So, when should you choose `startup-coroutine`?
-
-| Feature | Jetpack App Startup | startup-coroutine | Advantage Description |
+| Feature | Jetpack App Startup | startup-coroutine | Advantage |
 | :--- | :--- | :--- | :--- |
-| **Invocation Method** | Automated, non-intrusive | Manual call (`startup.start()`) | **startup-coroutine** offers more flexible control, allowing you to start tasks at any point (e.g., after privacy policy consent). |
-| **Threading Model & Async Capability** | Executes on background thread, does not support `suspend` | **Framework schedules in background, tasks execute on Main Thread**, natively supports `suspend` functions | **startup-coroutine** has overwhelming advantages:<br>1. **Zero Main Thread Interference**: Framework overhead is in the background, friendlier to startup performance.<br>2. **Native Async Support**: The `init` method is a `suspend` function, allowing direct calls to other suspend functions (e.g., Retrofit, Room async APIs), resulting in cleaner, more natural code without callbacks.<br>3. **Arbitrary Thread Switching**: Easily and efficiently switch threads within initialization tasks using `withContext`. |
-| **Exception Handling** | Crashes (by default) | Isolates parallel tasks, unified callback | **startup-coroutine** provides stronger exception isolation via `supervisorScope`, where failure in one task doesn't affect others. |
-| **Result Passing** | Supported, but simpler | `DependenciesProvider` | **startup-coroutine** offers a type-safe, more intuitive way to pass results. |
-| **Cancellation Support** | No | **Yes (`startup.cancel()`)** | **startup-coroutine** supports cancelling the entire startup process at runtime, suitable for dynamic module scenarios. |
+| **Async Capability** | Not Supported (Sync Blocking) | **Native Coroutine Support** | **startup-coroutine**'s `init` is a `suspend` function, naturally fitting modern Android development (Room, Retrofit, DataStore). |
+| **Thread Control** | Default Main Thread | **Highly Configurable** | Switch to full IO execution with one line to avoid ANR. |
+| **Dependency Args** | None (via ContentProvider) | **DependenciesProvider** | Supports passing initialization results from upstream to downstream tasks (e.g., OkHttp instance to Retrofit). |
+| **Result Observation** | Weak | **LiveData Observation** | Easy to bind with UI lifecycle, making Splash screens simpler. |
+| **Manual Control** | Supported | **Builder Pattern** | More intuitive configuration, supporting lazy loading and on-demand startup. |
 
-**Summary:**
+## 🤝 Contribution
 
-*   If you need a **simple, fully automatic, one-time** startup solution, **Jetpack App Startup** is a good choice.
-*   If you need **fine-grained control** over the startup process, **advanced concurrency management, robust exception isolation**, or need to trigger initialization at **different stages of the application lifecycle**, then **startup-coroutine** is the more powerful and flexible solution.
+Contributions of all forms are welcome!
 
-**When to choose the Startup-Coroutine framework:**
-
-*   Your project has complex initialization task logic.
-*   All initialization tasks take more than 2 seconds in `Application.onCreate()`; startup-coroutine's threading model can help optimize startup time by ~30%.
-*   You urgently need to display your SplashActivity instead of being stuck on a startup white screen.
-
-## 🤝 Contributing
-
-Contributions of all kinds are welcome! Whether it's reporting a bug, suggesting a new feature, or contributing code directly.
-
-1.  Fork the Project
-2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4.  Push to the Branch (`git push origin feature/AmazingFeature`)
-5.  Open a Pull Request
+1.  Fork the repository
+2.  Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4.  Push to the branch (`git push origin feature/AmazingFeature`)
+5.  Create a Pull Request
 
 ## 📄 License
 
-This project is licensed under the Apache 2.0 License. See the [LICENSE](https://github.com/Dboy233/startup-coroutine/blob/master/LICENSE) file for details.
-
-### Acknowledgments & Disclaimer
-
-The development of this project was supported by AI programming assistants. Portions of the code, documentation, and optimization suggestions were completed with the assistance of AI (Gemini), and were reviewed and integrated by the author.
-
-## 🔧 Test Logs
-
-> First, using the Jetpack App Startup framework for the startup process.
-
-```txt
-StartupJetpack           D  ============== StartupJetpack Startup Process Started ==============
-StartupJetpack           D  1. [BugMonitor] (main) Initializing Bug Stats Platform...
-StartupJetpack           D  1. [BugMonitor] (main) ✅ Bug Stats Platform initialized.
-StartupJetpack           D  2. [Utils] (main) Initializing Common Utilities Library...
-StartupJetpack           D  2.1 [Utils] (main) ...Logging, Network, Stats, EventBus utilities OK
-StartupJetpack           D  2. [Utils] (main) ✅ Common Utilities Library fully initialized.
-StartupJetpack           D  3. [Database] (main) Initializing Database...
-StartupJetpack           D  3. [Database] (main) ...Database upgrade detected, performing upgrade...
-StartupJetpack           D  3. [Database] (main) ✅ Database initialized.
-StartupJetpack           D  4. [Config] (main) Fetching configuration from network...
-StartupJetpack           D  4. [Config] (main) ✅ Configuration fetched successfully.
-StartupJetpack           D  5. [Ads] (main) Initializing Ads Platform...
-StartupJetpack           D  5. [Ads] (main) ...Using config: {provider=AwesomeAds, timeout=3000}
-StartupJetpack           D  5. [Ads] (main) ✅ Ads Platform initialized.
-StartupJetpack           I  ============== StartupJetpack Time Statistics ==============
-StartupJetpack           I  - JectpacjBugMonitorInitializer   | 103 ms
-StartupJetpack           I  - JetcpackCommonUtilsInitializer  | 500 ms
-StartupJetpack           I  - JetcPackDatabaseInitializer     | 301 ms
-StartupJetpack           I  - JetpackConfigInitializer        | 82 ms
-StartupJetpack           I  - JectpackAdsPlatformInitializer  | 202 ms
-StartupJetpack           I  StartupJetpack Total Time: 1191 ms
-StartupJetpack           I  ============== StartupJetpack Startup Process Successfully Ended ==============
-```
-
-> Using startup-coroutine for the startup process.
-
-```txt
-StartupCoroutine         D  ============== Startup Process Started ==============
-StartupCoroutine         D  startup.start() called, main thread continues other tasks...
-StartupCoroutine         D  --- Startup Coroutine Dependency Graph ---
-                            
-                            BugMonitorInitializer
-                            CommonUtilsInitializer
-                            DatabaseInitializer
-                              └─ CommonUtilsInitializer
-                            ConfigInitializer
-                              ├─ CommonUtilsInitializer
-                              └─ DatabaseInitializer
-                            AdsPlatformInitializer
-                              └─ ConfigInitializer
-                            
-                            ----------------------------------------
-StartupCoroutine         D  1. [BugMonitor] (main) Initializing Bug Stats Platform...
-StartupCoroutine         D  2. [Utils] (main) Initializing Common Utilities Library...
-StartupCoroutine         D  1. [BugMonitor] (main) ✅ Bug Stats Platform initialized.
-StartupCoroutine         D  2.1 [Utils] (main) ...Logging, Network, Stats, EventBus utilities OK
-StartupCoroutine         D  2. [Utils] (main) ✅ Common Utilities Library fully initialized.
-StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-3) Initializing Database...
-StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-3) ...Database upgrade detected, performing upgrade...
-StartupCoroutine         D  3. [Database] (DefaultDispatcher-worker-3) ✅ Database initialized.
-StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-4) Fetching configuration from network...
-StartupCoroutine         D  4. [Config] (DefaultDispatcher-worker-4) ✅ Configuration fetched successfully: AppConfig(adConfig={provider=AwesomeAds, timeout=3000}, featureFlags=[new_checkout_flow, enable_dark_mode])
-StartupCoroutine         D  5. [Ads] (main) Initializing Ads Platform...
-StartupCoroutine         D  5. [Ads] (main) ...Using config: {provider=AwesomeAds, timeout=3000}
-StartupCoroutine         D  5. [Ads] (main) ✅ Ads Platform initialized.
-StartupCoroutine         I  --- Startup Coroutine Performance Summary ---
-                            
-                            >> Total Time: 1853ms  |  Status: SUCCESS
-                            >> Dispatchers Mode: Default
-                            
-                            >> Individual Task Durations:
-                               - CommonUtilsInitializer  |  502ms  |  Thread: main
-                               - DatabaseInitializer     |  319ms  |  Thread: main
-                               - BugMonitorInitializer   |  307ms  |  Thread: main
-                               - AdsPlatformInitializer  |  202ms  |  Thread: main
-                               - ConfigInitializer       |  53ms   |  Thread: main
-                            >> Task time is sum  : 1383 ms
-                            
-                            -------------------------------------------
-StartupCoroutine         D  ============== Startup Process Successfully Ended ==============
-```
+This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.

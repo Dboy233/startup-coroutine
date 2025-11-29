@@ -1,92 +1,60 @@
 package com.dboy.startup.coroutine.api
 
-import android.content.Context
+import android.app.Application
 import kotlin.reflect.KClass
 
 /**
- * The core abstraction for an initialization task.
- *
- * Every unit of work that needs to be managed (e.g., SDK initialization, database loading)
- * should extend this class. It defines the execution logic and dependencies of the task.
+ * Defines a unit of initialization work to be executed during the startup process.
+ * Implement this interface to create a startup task.
  *
  * --- (中文说明) ---
  *
- * 定义一个初始化任务的核心抽象。
+ * 定义启动过程中需要执行的一个初始化工作单元。
+ * 实现此接口以创建一个启动任务。
  *
- * 每一个需要被管理的初始化单元（如SDK初始化、数据库加载等）都应该继承这个类。
- * 它定义了任务的执行逻辑和依赖关系。
- *
- * @param T The data type returned after initialization. Use [Unit] if no result is needed.
- * (初始化完成后返回的数据类型。如果任务不需要返回任何结果，请使用 [Unit]。)
- *
- * @see com.dboy.startup.coroutine.Startup The actual manager and executor of the tasks.
- * @sample
- * // A task that returns a string result and performs an I/O operation
- * // 一个返回字符串结果并执行I/O操作的任务
- * class MyTask :Initializer<String>() {
- *     override suspend fun init(context: Context, provider: DependenciesProvider): String {
- *         // Perform long-running I/O operation on a background thread
- *         val data = withContext(Dispatchers.IO) {
- *             // Simulate file reading or network call
- *             delay(1000)
- *             "Task Result"
- *         }
- *         return data
- *     }
- *
- * }
+ * @param T The type of the result returned by the initialization task.
+ *          If the task produces no result, use [Unit].
+ *          <br>
+ *          初始化任务返回的结果类型。如果任务不产生结果，请使用 [Unit]。
  */
-abstract class Initializer<T> {
-
+interface Initializer<T> {
 
     /**
-     * Executes the actual initialization work.
-     *
-     * The thread is related to the thread context set by [com.dboy.startup.coroutine.StartupDispatchers.executeDispatcher].
-     *
-     * **Important**: For any potentially blocking or long-running operations (e.g., file I/O,
-     * network requests, heavy computation), you **must** switch to a background dispatcher
-     * using `withContext(Dispatchers.IO)` or `withContext(Dispatchers.Default)` to avoid
-     * blocking the main thread and causing ANRs.
+     * Performs the initialization logic.
+     * This method is a suspending function, allowing you to perform long-running operations
+     * (e.g., I/O) without blocking the main thread, provided you switch dispatchers internally.
      *
      * --- (中文说明) ---
      *
-     * 执行实际的初始化工作。
+     * 执行初始化逻辑。
+     * 这是一个挂起函数，允许你在内部执行耗时操作（例如 I/O），而不会阻塞主线程
+     * （前提是你需要在内部根据情况切换调度器，或者依赖框架的调度配置）。
      *
-     * 执行线程与[com.dboy.startup.coroutine.StartupDispatchers.executeDispatcher]设置的线程上下文有关。
-     *
-     * **重要提示**: 对于任何潜在的阻塞或长时间运行的操作（例如：文件I/O、网络请求、复杂计算），
-     * 你 **必须** 使用 `withContext(Dispatchers.IO)` 或 `withContext(Dispatchers.Default)`
-     * 将其切换到后台调度器上执行.
-     *
-     * @param context The application's global context, whose lifecycle is tied to the app process.
-     * (Application全局上下文，生命周期与应用进程一致。)
-     * @param provider A dependency provider used to get the results of dependent tasks.
-     * (一个依赖提供者，用于在当前任务中获取其依赖项的执行结果。)
-     * @return The result after initialization is complete. Return [Unit] if no result is needed.
-     * (初始化完成后的结果。如果不需要结果，返回 [Unit]。)
-     * @see DependenciesProvider.result
-     * @see DependenciesProvider.resultOrNull
+     * @param application The Application context.
+     *                    <br>
+     *                    Application 上下文对象。
+     * @param provider    Provides access to the results of dependencies declared in [dependencies].
+     *                    <br>
+     *                    提供对 [dependencies] 中声明的依赖项结果的访问能力。
+     * @return The result of the initialization, which will be cached and accessible to other tasks
+     *         that depend on this one via [DependenciesProvider].
+     *         <br>
+     *         初始化的结果。该结果会被缓存，并可以通过 [DependenciesProvider] 提供给其他依赖于此任务的任务使用。
      */
-    abstract suspend fun init(context: Context, provider: DependenciesProvider): T
+    suspend fun init(application: Application, provider: DependenciesProvider): T
 
     /**
-     * Defines the other tasks that this initializer depends on.
-     *
-     * The framework ensures that all dependencies declared in this list are completed
-     * before this task is executed.
+     * Returns a list of other [Initializer] classes that this task depends on.
+     * This task will not start until all dependencies listed here have completed successfully.
      *
      * --- (中文说明) ---
      *
-     * 定义此初始化任务所依赖的其他任务。
+     * 返回此任务所依赖的其他 [Initializer] 类的列表。
+     * 在这里列出的所有依赖项成功完成之前，当前任务不会开始执行。
      *
-     * 框架会确保所有在此列表中声明的依赖任务都执行完毕后，才会执行当前任务。
-     *
-     * @return A list of [KClass] for the [Initializer]s it depends on. Returns an empty list if there are no dependencies.
-     * (一个由其依赖的 [Initializer] 的 [KClass] 组成的列表。如果无依赖，则返回空列表。)
-     * @sample
-     * override fun dependencies() = listOf(TaskA::class, TaskB::class)
+     * @return A list of dependency classes. Defaults to an empty list if there are no dependencies.
+     *         <br>
+     *         依赖项的类列表。如果没有依赖项，默认为空列表。
      */
-    open fun dependencies(): List<KClass<out Initializer<*>>> = emptyList()
-
+    fun dependencies(): List<KClass<out Initializer<*>>> = emptyList()
 }

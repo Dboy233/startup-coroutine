@@ -11,6 +11,13 @@ package com.dboy.startup.coroutine.model
 sealed class StartupResult {
 
     /**
+     * The idle state is not initialized
+     * ---
+     * 闲置状态未进行初始化工作
+     */
+    object Idle : StartupResult()
+
+    /**
      * Indicates that all initializer tasks completed successfully.
      * ---
      * 表示所有初始化任务均已成功完成。
