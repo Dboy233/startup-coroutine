@@ -140,9 +140,14 @@ internal class StartupImpl(
             withContext(Dispatchers.Main + NonCancellable) {
                 onResult?.invoke(result)
             }
-            started.set(false)
+           reset()
         }
 
+    }
+
+    private fun reset(){
+        taskMetrics.clear()
+        started.set(false)
     }
 
     /**
