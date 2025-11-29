@@ -70,7 +70,7 @@ dependencyResolutionManagement {
 
 ### 第二步：添加依赖
 
-<a href="https://jitpack.io/#Dboy233/startup-coroutine"><img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/18303f6ae53b4be6b6ba25c41bec4198~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg5bm05bCP5Liq5aSn:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTg1NTYzMTM1OTIxMzY4OCJ9&#x26;rk3s=e9ecf3d6&#x26;x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&#x26;x-orig-expires=1764507776&#x26;x-orig-sign=QpFxesMuLPJmsqLAQ1Q5fiGTDvw%3D"></a>
+<a href="https://jitpack.io/#Dboy233/startup-coroutine"><img src="https://jitpack.io/v/Dboy233/startup-coroutine.svg"></a>
 
 在您需要使用此框架的模块（通常是 `app` 模块）的 `build.gradle.kts` 文件中，添加依赖项。请将 `Tag` 替换为最新的版本号。
 
