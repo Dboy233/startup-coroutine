@@ -1,7 +1,7 @@
 package com.dboy.startup.coroutine.api
 
 /**
- * 依赖分析器接口。
+ * 依赖拓扑排序。
  * 负责对初始化任务列表进行拓扑排序和依赖验证。
  */
 interface ITopologySorting {

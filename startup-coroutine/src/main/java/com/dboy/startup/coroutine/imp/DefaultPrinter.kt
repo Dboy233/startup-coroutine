@@ -64,7 +64,6 @@ internal class DefaultPrinter() : IPrinter {
 
         logContent.append("\n-------------------------------------------\n")
 
-        // 使用一个醒目的日志级别打印报告
         if (hasErrors) {
             Log.i("StartupCoroutine", logContent.toString())
             println(logContent.toString())

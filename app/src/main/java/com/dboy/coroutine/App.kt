@@ -8,8 +8,8 @@ import com.dboy.coroutine.startup.FistInitializer
 import com.dboy.coroutine.startup.FlutterEngineInit
 import com.dboy.coroutine.startup.IMInit
 import com.dboy.coroutine.startup.MapSdkInit
-import com.dboy.startup.coroutine.AllIODispatchers
 import com.dboy.startup.coroutine.Startup
+import com.dboy.startup.coroutine.StartupDispatchers
 
 /**
  * 让Application更加简洁一些.
@@ -40,7 +40,7 @@ class App : Application() {
             ExceptionInit()
         )
         startup = Startup.Builder(this)
-            .setDispatchers(AllIODispatchers)
+            .setDispatchers(StartupDispatchers.AllIO)
             .setDebug(true)
             .add(initializer)
             .build()

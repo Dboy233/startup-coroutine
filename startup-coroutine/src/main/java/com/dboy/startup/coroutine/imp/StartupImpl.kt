@@ -1,7 +1,6 @@
 package com.dboy.startup.coroutine.imp
 
 import android.app.Application
-import com.dboy.startup.coroutine.DefaultDispatchers
 import com.dboy.startup.coroutine.Startup
 import com.dboy.startup.coroutine.StartupDispatchers
 import com.dboy.startup.coroutine.api.DependenciesProvider
@@ -9,7 +8,6 @@ import com.dboy.startup.coroutine.api.IPrinter
 import com.dboy.startup.coroutine.api.IStartup
 import com.dboy.startup.coroutine.api.ITopologySorting
 import com.dboy.startup.coroutine.api.Initializer
-import com.dboy.startup.coroutine.getDispatchersMode
 import com.dboy.startup.coroutine.model.StartupException
 import com.dboy.startup.coroutine.model.StartupResult
 import com.dboy.startup.coroutine.model.TaskMetrics
@@ -32,58 +30,10 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.KClass
 import kotlin.system.measureTimeMillis
 
-
-/**
- * 一个基于协程的、支持依赖关系、并行化和高级错误处理的异步启动框架。
- *
- * 该框架通过拓扑排序来管理复杂的初始化依赖关系。所有任务默认都在 **主线程** 上启动，
- * 从而可以直接执行UI相关的初始化。开发者可以根据需要在任务内部使用 `withContext(Dispatchers.IO)`
- * 或 `withContext(Dispatchers.Default)` 来执行耗时操作，而不会阻塞启动流程。
- *
- * ### 主要特性
- * - **依赖管理**: 自动处理任务间的依赖关系。
- * - **主线程优先**: 所有任务默认在主线程启动，方便UI操作。
- * - **灵活的线程模型**: 开发者可以轻松地在任务内部切换到后台线程。
- * - **并行执行**: 无依赖关系的任务可以并行执行以缩短启动时间。
- * - **异常隔离**: 使用 `supervisorScope` 确保单个并行任务的失败不会影响其他任务。
- * - **统一结果回调**: 通过 `onResult` 回调统一处理成功或失败的最终状态。
- * - **可取消**: 可以随时安全地取消整个启动流程。
- *
- * @param application Android Application Context。
- * @param isDebug 在debug模式下会打印所有任务拓扑关系图和任务耗时清单.
- * @param dispatchers 协程调度器配置，用于定义启动、执行和回调的线程模型,默认为 [com.dboy.startup.coroutine.DefaultDispatchers]。
- * @param initializers 所有需要执行的 [Initializer] 任务列表。
- * @param onResult 所有任务流程执行完毕后的统一回调。
- *                 该回调在所有可执行的任务（包括成功和失败的）都结束后触发。
- *                 您可以通过检查其参数 [StartupResult] 的类型来处理成功或失败的情况。
- *                 - **StartupResult.Success**: 表示所有任务均成功完成。
- *                 - **StartupResult.Failure**: 表示至少有一个任务失败，其中包含了所有失败任务的详细信息列表。
-
- *
- * @sample
- * // class AnalyticsInitializer : Initializer<AnalyticsSDK>() { ... }
- * // class AdsInitializer : Initializer<Unit>() { ... }
- *
- * val startup = Startup(
- *     context = applicationContext,
- *     initializers = listOf(AnalyticsInitializer(), AdsInitializer()),
- *     onResult = { result ->
- *         when (result) {
- *             is StartupResult.Success -> {
- *                 Log.d("App", "All initializers completed!")
- *             }
- *             is StartupResult.Failure -> {
- *                 Log.e("App", "Startup failed with ${result.exceptions.size} errors.")
- *             }
- *         }
- *     }
- * )
- * startup.start()
- */
 internal class StartupImpl(
     private val application: Application,
     private val isDebug: Boolean = false,
-    private val dispatchers: StartupDispatchers = DefaultDispatchers,
+    private val dispatchers: StartupDispatchers = StartupDispatchers.Default,
     private val initializers: List<Initializer<*>>,
     private val onResult: ((StartupResult) -> Unit)? = null
 ) : DependenciesProvider, IStartup {
@@ -109,15 +59,7 @@ internal class StartupImpl(
     // 存储启动任务的Job，以便于外部控制（如取消或加入）
     private var startupJob: Job? = null
 
-    /**
-     * Starts the entire initialization process.
-     * This method is thread-safe and can only be successfully invoked once.
-     *
-     * --- (中文说明) ---
-     *
-     * 启动整个初始化流程。
-     * 此方法是线程安全的，且只能被成功调用一次。
-     */
+
     override fun start(): Job {
         // 使用 compareAndSet 确保 start 逻辑只执行一次
         // Use compareAndSet to ensure that the start logic is executed only once
@@ -140,7 +82,7 @@ internal class StartupImpl(
             supervisorScope {
                 val parallelJobs = mutableMapOf<KClass<out Initializer<*>>, Deferred<*>>()
                 for (initializer in sortedInitializers) {
-                    val job = scope.async(dispatchers.executeDispatcher) {
+                    val job = async(dispatchers.executeDispatcher) {
                         // Before starting the current task, wait for its dependencies to complete.
                         // 在启动当前任务前，先等待其所有依赖项完成。
                         val dependencyJobs = initializer.dependencies()
@@ -215,7 +157,7 @@ internal class StartupImpl(
             logger.printRunningTimeConsumingSummaries(
                 totalDuration,
                 taskMetrics,
-                getDispatchersMode(dispatchers),
+                StartupDispatchers.getDispatchersMode(dispatchers),
                 hasError
             )
         }
@@ -282,7 +224,7 @@ internal class StartupImpl(
     private suspend fun truthExecute(initializer: Initializer<*>) {
         val duration = measureTimeMillis {
             val result = initializer.init(application, this)
-            if (result !is Unit && result != null) {
+            if (result != null) {
                 results[initializer::class] = result
             }
         }
@@ -305,22 +247,24 @@ internal class StartupImpl(
     }
 
 
-    /**
-     * Retrieves the result of a completed dependency. Throws an exception if the result is unavailable.
-     * --- (中文说明) ---
-     * 获取一个已完成依赖项的结果。如果结果不可用，则抛出异常。
-     */
+
     @Suppress("UNCHECKED_CAST")
     override fun <T> result(dependency: KClass<out Initializer<*>>): T {
-        return results[dependency] as? T
-            ?: throw IllegalStateException("Result for ${dependency.simpleName} not found. Is it declared as a dependency and does it return a non-Unit value?")
+        val any = results[dependency]
+        if (any != null) {
+            return any as T
+        }
+        // 如果 value 为 null，抛出异常
+        throw IllegalStateException(
+            "Result for ${dependency.simpleName} not found. " +
+                    "Ensure that:\n" +
+                    "1. The initializer '${dependency.simpleName}' is included in the startup list.\n" +
+                    "2. It has executed successfully.\n" +
+                    "3. It does not return null explicitly (Initializer<Unit> returns Unit object, which is fine)."
+        )
     }
 
-    /**
-     * Safely retrieves the result of a completed dependency, or `null` if it's unavailable.
-     * --- (中文说明) ---
-     * 安全地获取一个已完成依赖项的结果，如果结果不可用则返回 `null`。
-     */
+
     @Suppress("UNCHECKED_CAST")
     override fun <T> resultOrNull(dependency: KClass<out Initializer<*>>): T? {
         return results[dependency] as? T

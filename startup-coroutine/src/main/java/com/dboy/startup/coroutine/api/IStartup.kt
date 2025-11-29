@@ -13,7 +13,7 @@ interface IStartup {
      * 此方法会立即返回，并在内部通过协程（`launch`）执行任务。
      * 这是一种非阻塞的启动方式，适用于不希望启动过程阻塞主线程的场景。
      *
-     * @return 返回一个 Coroutine Job，可用于外部监控或取消。
+     * @return 返回一个 Coroutine Job，可用于外部监控，等待，取消
      */
     fun start(): Job
 
