@@ -34,6 +34,7 @@
     *   [`StartupDispatchers`](#startupdispatchers)
     *   [`DependenciesProvider`](#dependenciesprovider)
 *   [🔧 高级用法](#-高级用法)
+    *   [封装实践](#封装实践)
     *   [异常处理机制](#异常处理机制)
     *   [循环依赖检测](#循环依赖检测)
 *   [🆚 与 Jetpack App Startup 对比](#-与-Jetpack-App-Startup-对比)
@@ -218,6 +219,12 @@ class SplashActivity : AppCompatActivity() {
 *   `resultOrNull<T>(class)`: 安全获取结果，失败返回 null。
 
 ## 🔧 高级用法
+
+### 封装实践
+
+1. [`App.kt`](app/src/main/java/com/dboy/coroutine/App.kt) 
+2. [`BaseActivity.kt`](app/src/main/java/com/dboy/coroutine/BaseActivity.kt)
+3. [`SplashActivity.kt`](app/src/main/java/com/dboy/coroutine/SplashActivity.kt)
 
 ### 异常处理机制
 
