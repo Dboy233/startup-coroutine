@@ -254,4 +254,4 @@ Contributions of all forms are welcome!
 
 ## 📄 License
 
-This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache 2.0 License. See the [LICENSE](blob/LICENSE) file for details.
