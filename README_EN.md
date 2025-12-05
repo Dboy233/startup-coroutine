@@ -17,7 +17,7 @@
 
 ***
 
-`startup-coroutine` is an asynchronous startup framework designed for Android, built on Kotlin Coroutines. It intelligently manages complex initialization dependencies using topological sorting and leverages the power of coroutines to parallelize tasks, significantly reducing application startup time. The framework is well-designed with advanced error handling and lifecycle management capabilities, making your app initialization process more robust, efficient, and easier to maintain.
+`startup-coroutine` is an asynchronous startup framework designed for Android, built on Kotlin Coroutines. It intelligently manages complex initialization dependencies using topological sorting and leverages the power of coroutines to parallelize tasks, significantly reducing application startup time. The framework is well-designed with advanced error handling and lifecycle management capabilities, making your app initialization process more robust, efficient, 和 easier to maintain.
 
 ## 📖 Table of Contents
 
@@ -35,6 +35,7 @@
     *   [`StartupDispatchers`](#startupdispatchers)
     *   [`DependenciesProvider`](#dependenciesprovider)
 *   [🔧 Advanced Usage](#-advanced-usage)
+    *   [Consumer rules](#Consumer-rules)  
     *   [Exception Handling Mechanism](#exception-handling-mechanism)
     *   [Circular Dependency Detection](#circular-dependency-detection)
 *   [🆚 Comparison with Jetpack App Startup](#-comparison-with-jetpack-app-startup)
@@ -219,6 +220,22 @@ Passed to the `init` method to retrieve results from upstream dependencies.
 *   `resultOrNull<T>(class)`: Safely retrieves the result; returns null on failure.
 
 ## 🔧 Advanced Usage
+
+
+### Consumer rules
+
+```
+# 1. 保护 Initializer 接口本身不被移除或混淆
+-keep class com.dboy.startup.coroutine.api.Initializer
+
+# 2. 关键规则：
+# 保持所有实现了 Initializer 接口的类的类名不被混淆。
+# 同时保留无参构造函数（框架实例化时需要）。
+# 这可以防止 R8 将不同的 Initializer 类合并，从而避免循环依赖报错。
+-keep class * implements com.dboy.startup.coroutine.api.Initializer {
+    <init>();
+}
+```
 
 ### Exception Handling Mechanism
 
