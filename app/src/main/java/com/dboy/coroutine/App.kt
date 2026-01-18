@@ -23,6 +23,10 @@ class App : Application() {
         fun startInit() {
             startup.start()
         }
+
+        fun cancelInit() {
+            startup.cancel()
+        }
     }
 
     override fun onCreate() {

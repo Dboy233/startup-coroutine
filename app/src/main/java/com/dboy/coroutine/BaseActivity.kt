@@ -53,6 +53,7 @@ abstract class BaseActivity(layoutId: Int) : AppCompatActivity(layoutId) {
                     showLoading()
                 }
                 is StartupResult.Failure -> {
+
                     hideLoading()
                     if (isCanIgnoreInitJobError(result)) {
                         onInitFinished()
@@ -85,17 +86,12 @@ abstract class BaseActivity(layoutId: Int) : AppCompatActivity(layoutId) {
      * 判断是否允许忽略初始化错误
      */
     protected fun isCanIgnoreInitJobError(failure: StartupResult.Failure): Boolean {
-        var isIgnoreError = true
-        for (exception in failure.exceptions) {
-            val initializerClass = ignoreErrorInitJobList.firstOrNull { ignore ->
-                ignore != exception
-            }
-            if (initializerClass == null) {
-                isIgnoreError = false
-                break
-            }
+        if (failure.exceptions.isEmpty()) return true
+
+        // 使用 Kotlin 集合操作符 all 检查是否所有发生异常的类都属于可忽略列表
+        return failure.exceptions.all { exception ->
+            ignoreErrorInitJobList.contains(exception.initializerClass)
         }
-        return isIgnoreError
     }
 
 
@@ -104,6 +100,9 @@ abstract class BaseActivity(layoutId: Int) : AppCompatActivity(layoutId) {
             loadingDialog = AlertDialog.Builder(this)
                 .setView(LoadingIndicator(this))
                 .setMessage("正在初始化...")
+                .setPositiveButton("取消") { p0, p1 ->
+                    App.cancelInit()
+                }
                 .setCancelable(false) // 加载中不允许点击外部取消
                 .create()
         }

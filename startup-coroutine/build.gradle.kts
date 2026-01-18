@@ -52,7 +52,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "com.github.Dboy233"
             artifactId = "startup-coroutine"
-            version = "0.2.0-beta"
+            version = "0.2.1-beta"
 
             afterEvaluate {
                 from(components["release"])

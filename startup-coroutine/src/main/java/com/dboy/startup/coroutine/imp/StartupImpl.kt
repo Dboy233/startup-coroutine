@@ -1,6 +1,7 @@
 package com.dboy.startup.coroutine.imp
 
 import android.app.Application
+import android.util.Log
 import com.dboy.startup.coroutine.Startup
 import com.dboy.startup.coroutine.StartupDispatchers
 import com.dboy.startup.coroutine.api.DependenciesProvider
@@ -24,6 +25,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
@@ -46,15 +48,14 @@ internal class StartupImpl(
     private val results = ConcurrentHashMap<KClass<out Initializer<*>>, Any>()
 
     // CoroutineScope 用于管理所有初始化任务的生命周期。
-    private val scope: CoroutineScope =
-        CoroutineScope(SupervisorJob() + dispatchers.startDispatcher)
+    private var scope: CoroutineScope? = null
 
     // Atomic flag to prevent multiple invocations of the start() method.
     // 原子状态锁，防止 start() 方法被多次调用。
     private val started = AtomicBoolean(false)
 
     // [新增] 用于存储所有任务性能指标的列表
-    private val taskMetrics = mutableListOf<TaskMetrics>()
+    private val taskMetrics = Collections.synchronizedList(mutableListOf<TaskMetrics>())
 
     // 存储启动任务的Job，以便于外部控制（如取消或加入）
     private var startupJob: Job? = null
@@ -64,7 +65,8 @@ internal class StartupImpl(
         // 使用 compareAndSet 确保 start 逻辑只执行一次
         // Use compareAndSet to ensure that the start logic is executed only once
         if (started.compareAndSet(false, true)) {
-            startupJob = scope.launch {
+            scope = CoroutineScope(SupervisorJob() + dispatchers.startDispatcher)
+            startupJob = scope?.launch {
                 executeStartupLogic()
             }
         }
@@ -120,7 +122,7 @@ internal class StartupImpl(
 
             // If the scope was cancelled, ensure a CancellationException is reported.
             // 如果 scope 被主动取消，确保一个 CancellationException 被报告。
-            if (scope.coroutineContext[Job]?.isCancelled == true && exceptions.none { it.exception is CancellationException }) {
+            if (scope?.coroutineContext[Job]?.isCancelled == true && exceptions.none { it.exception is CancellationException }) {
                 // 如果是被取消的，并且异常列表里还没有 CancellationException，就手动添加一个
                 exceptions.add(
                     StartupException(
@@ -140,14 +142,18 @@ internal class StartupImpl(
             withContext(Dispatchers.Main + NonCancellable) {
                 onResult?.invoke(result)
             }
-           reset()
+            reset()
         }
 
     }
 
-    private fun reset(){
+    private fun reset() {
+        Log.d("dboy", "reset")
         taskMetrics.clear()
         started.set(false)
+        startupJob = null
+        scope = null
+        results.clear()
     }
 
     /**
@@ -187,17 +193,20 @@ internal class StartupImpl(
                     // 它将立即返回结果或抛出存储的异常。
                     job.await()
                 } catch (e: CancellationException) {
-                    // 我们显式忽略 CancellationExceptions，因为它们通常不是此逻辑失败的根本原因。
+                    e.printStackTrace()
+                    Log.d("dboy", "exceptionsCollect: ${e.toString()}")
+
+                    // 显式忽略 CancellationExceptions，因为它们通常不是此逻辑失败的根本原因。
                     val rootCause = e.cause
-                    if (rootCause != null) {
-                        jobToInitializerMap[job]?.let { failedClass ->
-                            taskMetrics.add(
-                                TaskMetrics(
-                                    name = failedClass.simpleName ?: "UnknownInitializer",
-                                    duration = -1,
-                                    threadName = "Error"
-                                )
+                    jobToInitializerMap[job]?.let { failedClass ->
+                        taskMetrics.add(
+                            TaskMetrics(
+                                name = failedClass.simpleName ?: "UnknownInitializer",
+                                duration = -1,
+                                threadName = if (rootCause != null) "Error" else "Cancelled"
                             )
+                        )
+                        if (rootCause != null) {
                             exceptions.add(StartupException(failedClass, rootCause))
                         }
                     }
@@ -248,9 +257,9 @@ internal class StartupImpl(
      * 取消所有正在进行的初始化任务。
      */
     override fun cancel() {
-        scope.cancel("Startup cancelled by caller.")
+        scope?.cancel("Startup cancelled by caller.")
+        reset()
     }
-
 
 
     @Suppress("UNCHECKED_CAST")
