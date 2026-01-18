@@ -35,6 +35,7 @@
     *   [`DependenciesProvider`](#dependenciesprovider)
 *   [🔧 高级用法](#-高级用法)
     *   [封装实践](#封装实践)
+    *   [混淆规则](#混淆规则)
     *   [异常处理机制](#异常处理机制)
     *   [循环依赖检测](#循环依赖检测)
 *   [🆚 与 Jetpack App Startup 对比](#-与-Jetpack-App-Startup-对比)
@@ -225,6 +226,23 @@ class SplashActivity : AppCompatActivity() {
 1. [`App.kt`](app/src/main/java/com/dboy/coroutine/App.kt) 
 2. [`BaseActivity.kt`](app/src/main/java/com/dboy/coroutine/BaseActivity.kt)
 3. [`SplashActivity.kt`](app/src/main/java/com/dboy/coroutine/SplashActivity.kt)
+
+### 混淆规则
+
+```text
+
+# 1. 保护 Initializer 接口本身不被移除或混淆
+-keep class com.dboy.startup.coroutine.api.Initializer
+
+# 2. 关键规则：
+# 保持所有实现了 Initializer 接口的类的类名不被混淆。
+# 同时保留无参构造函数（框架实例化时需要）。
+# 这可以防止 R8 将不同的 Initializer 类合并，从而避免循环依赖报错。
+-keep class * implements com.dboy.startup.coroutine.api.Initializer {
+    <init>();
+}
+
+```
 
 ### 异常处理机制
 
