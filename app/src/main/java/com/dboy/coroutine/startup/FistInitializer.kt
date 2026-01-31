@@ -12,4 +12,6 @@ class FistInitializer: Initializer<Unit> {
     ) {
         delay(200)
     }
+
+    override fun isMultiProcess(): Boolean = true
 }

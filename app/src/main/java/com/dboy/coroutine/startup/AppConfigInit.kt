@@ -18,4 +18,6 @@ class AppConfigInit: Initializer<String> {
     override fun dependencies(): List<KClass<out Initializer<*>>> {
         return listOf(FistInitializer::class)
     }
+
+    override fun isMultiProcess(): Boolean = true
 }

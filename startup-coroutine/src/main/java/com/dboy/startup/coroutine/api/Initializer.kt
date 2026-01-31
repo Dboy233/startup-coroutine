@@ -57,4 +57,17 @@ interface Initializer<T> {
      *         依赖项的类列表。如果没有依赖项，默认为空列表。
      */
     fun dependencies(): List<KClass<out Initializer<*>>> = emptyList()
+
+
+    /**
+     * Declares if this task can be run in a non-main process.
+     * Defaults to false, meaning tasks are main-process-only unless overridden.
+     * If the current task allows multi-process initialization,
+     * then the task it depends on must also support multi-process initialization.
+     * ---
+     * 声明此任务是否可以在非主进程中运行。
+     * 默认为 false，意味着除非被重写，否则任务仅在主进程运行。
+     * 如果当前任务允许多进程初始化那么其依赖的任务也必须支持多进程初始化。
+     */
+    fun isMultiProcess(): Boolean = false
 }

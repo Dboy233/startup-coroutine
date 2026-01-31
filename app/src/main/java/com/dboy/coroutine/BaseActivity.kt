@@ -1,6 +1,7 @@
 package com.dboy.coroutine
 
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
@@ -52,6 +53,7 @@ abstract class BaseActivity(layoutId: Int) : AppCompatActivity(layoutId) {
                     // 只有当确认 start() 已经调用但还没结果时才显示
                     showLoading()
                 }
+
                 is StartupResult.Failure -> {
 
                     hideLoading()
@@ -61,6 +63,7 @@ abstract class BaseActivity(layoutId: Int) : AppCompatActivity(layoutId) {
                         onInitFailed(result)
                     }
                 }
+
                 StartupResult.Success -> {
                     hideLoading()
                     onInitFinished()
@@ -69,7 +72,7 @@ abstract class BaseActivity(layoutId: Int) : AppCompatActivity(layoutId) {
         }
     }
 
-    protected open  fun onInitFinished() {
+    protected open fun onInitFinished() {
         initView()
         initData()
     }
@@ -78,6 +81,9 @@ abstract class BaseActivity(layoutId: Int) : AppCompatActivity(layoutId) {
      * 处理严重失败，允许子类重写以自定义错误页面
      */
     protected open fun onInitFailed(failure: StartupResult.Failure) {
+        failure.exceptions.forEach {
+            Log.e("StartupCoroutine", it.exception.toString())
+        }
         Toast.makeText(this, "核心组件初始化失败，请重启应用", Toast.LENGTH_LONG).show()
     }
 

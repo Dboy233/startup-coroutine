@@ -16,5 +16,7 @@ class MapSdkInit : Initializer<Unit> {
     override fun dependencies(): List<KClass<out Initializer<*>>> {
         return listOf(AppConfigInit::class)
     }
+
+    override fun isMultiProcess(): Boolean = true
 }
         

@@ -1,6 +1,10 @@
 package com.dboy.startup.coroutine.imp
 
+import android.app.ActivityManager
 import android.app.Application
+import android.content.Context
+import android.os.Build
+import android.os.Process
 import android.util.Log
 import com.dboy.startup.coroutine.Startup
 import com.dboy.startup.coroutine.StartupDispatchers
@@ -228,11 +232,31 @@ internal class StartupImpl(
     }
 
     private fun executeTopologySorting(): List<Initializer<*>> {
-        val analyze = topologySorting.topologySorting(initializers)
+
+        //判断进程是否为主进程
+        val isMainProcess = getCurrentProcessName() == application.packageName
+
+        //多进程过滤
+        val filteredInitializers = if (isMainProcess) {
+            initializers
+        } else {
+            initializers.filter { it.isMultiProcess() }
+        }
+
+        val analyze = topologySorting.topologySorting(filteredInitializers)
         if (isDebug) {
             logger.printTopologySortingDependGraph(analyze)
         }
         return analyze
+    }
+
+    private fun getCurrentProcessName(): String? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Application.getProcessName()
+        } else {
+            val am = application.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            am.runningAppProcesses?.find { it.pid == Process.myPid() }?.processName
+        }
     }
 
     private suspend fun truthExecute(initializer: Initializer<*>) {
