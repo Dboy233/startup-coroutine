@@ -24,6 +24,13 @@
             android:layout_height="wrap_content"
             android:text="打开子进程WebView" />
 
+        <Button
+            android:id="@+id/btn_open_ad_process"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="打开广告进程(不初始化)" />
+
     </LinearLayout>
 
 </FrameLayout>

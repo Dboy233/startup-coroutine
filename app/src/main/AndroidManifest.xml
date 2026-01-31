@@ -31,6 +31,10 @@
             android:name=".WebActivity"
             android:process=":webview" />
 
+        <activity
+            android:name=".AdProcessActivity"
+            android:process=":ad_process" />
+
     </application>
 
 </manifest>

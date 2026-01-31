@@ -14,6 +14,10 @@ class MainActivity : BaseActivity(R.layout.activity_main) {
         findViewById<Button>(R.id.btn_open_webview)
     }
 
+    private val adProcessButton by lazy {
+        findViewById<Button>(R.id.btn_open_ad_process)
+    }
+
     override fun initView() {
         reinitButton.setOnClickListener {
             if (Startup.isInitialized()) {
@@ -24,6 +28,10 @@ class MainActivity : BaseActivity(R.layout.activity_main) {
 
         webViewButton.setOnClickListener {
             startActivity(Intent(this, WebActivity::class.java))
+        }
+
+        adProcessButton.setOnClickListener {
+            startActivity(Intent(this, AdProcessActivity::class.java))
         }
     }
 
