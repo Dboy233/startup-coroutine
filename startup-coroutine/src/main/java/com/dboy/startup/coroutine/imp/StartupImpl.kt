@@ -166,10 +166,10 @@ internal class StartupImpl(
         if (isDebug) {
             val totalDuration = System.currentTimeMillis() - totalStartTime
             logger.printRunningTimeConsumingSummaries(
-                totalDuration,
-                taskMetrics,
-                StartupDispatchers.getDispatchersMode(dispatchers),
-                hasError
+                totalDuration = totalDuration,
+                taskMetrics = taskMetrics,
+                dispatchersMode = dispatchers.modeName,
+                hasErrors = hasError
             )
         }
     }

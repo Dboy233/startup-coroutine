@@ -46,7 +46,7 @@ class App : Application() {
         )
         //构建startup
         startup = Startup.Builder(this)
-            .setDispatchers(StartupDispatchers.AllIO)
+            .setDispatchers(StartupDispatchers.Default)
             .setDebug(true)
             .add(initializer)
             .build()

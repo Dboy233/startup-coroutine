@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 data class StartupDispatchers(
     val startDispatcher: CoroutineDispatcher,
     val executeDispatcher: CoroutineDispatcher,
+    val modeName: String = "Customization",
 ) {
     companion object {
 
@@ -30,6 +31,7 @@ data class StartupDispatchers(
         val AllMain = StartupDispatchers(
             startDispatcher = Dispatchers.Main,
             executeDispatcher = Dispatchers.Main,
+            modeName = "All-Main"
         )
 
         /**
@@ -41,6 +43,7 @@ data class StartupDispatchers(
         val AllIO = StartupDispatchers(
             startDispatcher = Dispatchers.IO,
             executeDispatcher = Dispatchers.IO,
+            modeName = "All-IO"
         )
 
         /**
@@ -51,6 +54,7 @@ data class StartupDispatchers(
         val ExecuteOnIO: StartupDispatchers = StartupDispatchers(
             startDispatcher = Dispatchers.Main,
             executeDispatcher = Dispatchers.IO,
+            modeName = "Execute-On-IO"
         )
 
 
@@ -60,6 +64,7 @@ data class StartupDispatchers(
         val ExecuteOnMain: StartupDispatchers = StartupDispatchers(
             startDispatcher = Dispatchers.IO,
             executeDispatcher = Dispatchers.Main,
+            modeName = "Execute-On-Main"
         )
 
         /**
@@ -69,31 +74,10 @@ data class StartupDispatchers(
          *
          * 这是最常用和最均衡的配置。
          */
-        val Default = ExecuteOnMain
+        val Default = ExecuteOnMain.copy(
+            modeName = "Default"
+        )
 
-        internal fun getDispatchersMode(dispatcherMode: StartupDispatchers): String {
-            return when (dispatcherMode) {
-                Default -> {
-                    "Default"
-                }
-
-                AllMain -> {
-                    "All-Main"
-                }
-
-                AllIO -> {
-                    "All-IO"
-                }
-
-                ExecuteOnIO -> {
-                    "Execute-On-IO"
-                }
-
-                else -> {
-                    "Customization-Dispatchers"
-                }
-            }
-        }
     }
 }
 
