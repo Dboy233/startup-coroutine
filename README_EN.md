@@ -50,6 +50,7 @@
 *   **🚀 Extreme Performance**: The framework's own topological sorting and scheduling logic runs in the background, with almost zero interference to the main thread.
 *   **🛡️ Exception Isolation**: Uses `supervisorScope` to isolate parallel tasks, ensuring that the failure of a single task does not crash the entire startup process.
 *   **👀 Lifecycle Aware**: Observes startup results via `LiveData`, perfectly adapting to the Activity/Fragment lifecycle.
+*   **🌍 Multi-Process Support**: Configure whether initialization tasks run in multiple processes, with automatic filtering to perfectly adapt to complex application architectures.
 *   **🤚 Cancellable**: Returns a standard coroutine `Job`, allowing you to safely cancel the entire startup process at any time.
 
 ## 📥 Download & Integration
@@ -191,6 +192,7 @@ The core interface defining an initialization unit.
 
 *   `suspend fun init(application: Application, provider: DependenciesProvider): T`: Executes the initialization logic.
 *   `fun dependencies(): List<KClass<out Initializer<*>>>`: Returns a list of dependent tasks.
+*   `fun isMultiProcess(): Boolean`: (Optional) Declares if this task can be run in a non-main process. Defaults to `false`.
 
 ### `Startup.Builder`
 
@@ -246,6 +248,51 @@ The framework collects exceptions from all parallel tasks.
 *   Using `setDebug(true)` allows you to see detailed error stacks and corresponding task names in Logcat.
 
 ### Circular Dependency Detection
+
+### Multi-Process Support
+
+Starting from version `0.2.2-beta`, the framework natively supports multi-process initialization. It automatically detects the current process and only executes tasks that are permitted to run in it.
+
+#### 1. Declaring a Multi-Process Task
+
+To allow an `Initializer` to run in multiple processes, simply override the `isMultiProcess()` method and return `true`.
+
+```kotlin
+class MyMultiProcessInitializer : Initializer<Unit> {
+    override suspend fun init(application: Application, provider: DependenciesProvider) {
+        // ... initialization logic
+    }
+
+    // Override this method to declare multi-process support
+    override fun isMultiProcess(): Boolean = true
+}
+```
+
+**Rule**: In a non-main process, only tasks where `isMultiProcess()` returns `true` will be considered for execution. If a task depends on another task that does not support multi-process, it and its dependency chain will be safely interrupted due to a failed dependency check.
+
+#### 2. Handling Third-Party SDK Processes (Important)
+
+Many ad or push notification SDKs create their own private processes, which are often short-lived and uncontrollable. It's best practice to prevent our own initialization logic from running in them. This can be achieved by adding a "process filter" at the entry point of `Application.onCreate`.
+
+```kotlin
+// In Application.onCreate()
+
+val currentProcessName = getCurrentProcessName() ?: ""
+val isMainProcess = currentProcessName == packageName
+
+// If it's neither the main process nor a whitelisted app process (e.g., :webview), return early.
+if (!isMainProcess && !isOurWhitelistedProcess(currentProcessName)) {
+    return
+}
+
+// ... The rest of the startup-coroutine build and start logic follows
+```
+
+#### 3. Note on Multi-Process Data Sharing
+
+Please be aware that standard `SharedPreferences` is **not process-safe**. Using it to share data across processes will lead to data corruption. It is highly recommended to use a storage solution designed for multi-process use, such as `ContentProvider` or Tencent's `MMKV`.
+
+## 🆚 Comparison with Jetpack App Startup
 
 After `build()`, when `start()` is called, the framework automatically performs topological sorting. If a circular dependency is detected (e.g., A depends on B, B depends on A), an `IllegalStateException` is thrown immediately to help you identify structural issues during development.
 

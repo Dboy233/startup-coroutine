@@ -50,6 +50,7 @@
 *   **🚀 极致性能**: 框架自身的拓扑排序与调度逻辑在后台执行，对主线程几乎零干扰。
 *   **🛡️ 异常隔离**: 采用 `supervisorScope` 隔离并行任务，确保单个任务的失败不会导致整个启动流程崩溃。
 *   **👀 生命周期感知**: 通过 `LiveData` 观察启动结果，完美适配 Activity/Fragment 生命周期。
+*   **🌍 支持多进程**: 可配置初始化任务是否在多进程中执行，并自动过滤，完美适配复杂的应用架构。
 *   **🤚 可取消**: 返回标准协程 `Job`，支持随时安全地取消整个启动流程。
 
 ## 📥 下载与集成
@@ -191,6 +192,7 @@ class SplashActivity : AppCompatActivity() {
 
 *   `suspend fun init(application: Application, provider: DependenciesProvider): T`: 执行初始化逻辑。
 *   `fun dependencies(): List<KClass<out Initializer<*>>>`: 返回依赖的任务列表。
+*   `fun isMultiProcess(): Boolean`: (可选) 声明该任务是否支持在非主进程中运行，默认为 `false`。
 
 ### `Startup.Builder`
 
@@ -253,6 +255,51 @@ class SplashActivity : AppCompatActivity() {
 *   使用 `setDebug(true)` 可以在 Logcat 中看到详细的错误堆栈和对应的任务名称。
 
 ### 循环依赖检测
+
+### 多进程支持
+
+从 `0.2.2-beta` 版本开始，框架原生支持多进程初始化。框架会自动检测当前进程，并只执行那些被允许在当前进程运行的任务。
+
+#### 1. 声明多进程任务
+
+让一个 `Initializer` 支持在多进程中运行，只需重写 `isMultiProcess()` 方法并返回 `true`。
+
+```kotlin
+class MyMultiProcessInitializer : Initializer<Unit> {
+    override suspend fun init(application: Application, provider: DependenciesProvider) {
+        // ... 初始化逻辑
+    }
+
+    // 重写此方法，声明支持多进程
+    override fun isMultiProcess(): Boolean = true
+}
+```
+
+**规则**：在非主进程中，只有 `isMultiProcess()` 返回 `true` 的任务才会被执行。如果一个任务依赖于另一个不支持多进程的任务，那么在子进程中，这个任务及其依赖链都将因依赖检查失败而被安全地中断。
+
+#### 2. 处理第三方SDK进程（重要）
+
+很多广告、推送SDK会创建自己的私有进程。这些进程生命周期短暂且行为不可控，我们不希望在其中运行任何我们自己的初始化逻辑。最佳实践是在 `Application.onCreate` 的入口处进行“进程过滤”，提前返回。
+
+```kotlin
+// In Application.onCreate()
+
+val currentProcessName = getCurrentProcessName() ?: ""
+val isMainProcess = currentProcessName == packageName
+
+// 如果既不是主进程，也不是我们明确允许的子进程（如 :webview），则直接返回
+if (!isMainProcess && !isOurWhitelistedProcess(currentProcessName)) {
+    return
+}
+
+// ... 后续才是 startup-coroutine 的构建和启动逻辑
+```
+
+#### 3. 关于多进程数据共享
+
+请注意，标准的 `SharedPreferences` **不是进程安全的**。如果在多个进程中依赖它共享数据，将导致数据错乱。推荐使用专为多进程设计的存储方案，如 `ContentProvider` 或腾讯的 `MMKV`。
+
+## 🆚 与 Jetpack App Startup 对比
 
 在 `build()` 之后，调用 `start()` 时，框架会自动执行拓扑排序。如果检测到循环依赖（例如 A 依赖 B，B 依赖 A），会立即抛出 `IllegalStateException`，帮助您在开发阶段发现结构问题。
 
